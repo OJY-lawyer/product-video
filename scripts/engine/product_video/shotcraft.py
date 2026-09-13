@@ -8,7 +8,7 @@ import subprocess
 
 from PIL import Image, ImageOps
 
-from .common import VideoError, atomic_write, digest, file_hash, probe, run, write_json
+from .common import VideoError, atomic_write, digest, file_hash, probe, run, write_json, executable, process_options
 
 
 def runtime_root():
@@ -19,7 +19,7 @@ def runtime_root():
 
 
 def catalogue():
-    return json.loads((runtime_root() / 'motion-catalog.json').read_text())
+    return json.loads((runtime_root() / 'motion-catalog.json').read_text(encoding="utf-8"))
 
 
 def motion_item(key):
@@ -97,14 +97,14 @@ def runtime_sources():
 
 def invoke(action, request, folder):
     wb = runtime_root() / 'workbench'
-    if not (wb / 'node_modules/remotion/package.json').is_file() or not shutil.which('node'):
-        raise VideoError('Remotion 环境未就绪，请运行 Skill 的 scripts/setup-motion.sh。')
+    if not (wb / 'node_modules/remotion/package.json').is_file() or not shutil.which(executable('node')):
+        raise VideoError('Remotion 环境未就绪，请运行 Skill 的 scripts/setup.ps1（Windows）或 setup-motion.sh。')
     request_file = folder / f'{action}-request.json'
     write_json(request_file, request)
     log = folder / f'{action}.log'
     print(f'Remotion {action} 已启动，日志：{log}', flush=True)
-    with log.open('w') as out:
-        proc = subprocess.Popen(['node', str(wb / 'scripts/product-video.mjs'), action, str(request_file)], cwd=wb, stdout=out, stderr=subprocess.STDOUT)
+    with log.open('w', encoding='utf-8') as out:
+        proc = subprocess.Popen([executable('node'), str(wb / 'scripts/product-video.mjs'), action, str(request_file)], cwd=wb, stdout=out, stderr=subprocess.STDOUT, **process_options())
         try:
             code = proc.wait(timeout=7200)
         except (subprocess.TimeoutExpired, KeyboardInterrupt):
@@ -145,11 +145,14 @@ def timeline(config, chapters, public, render_plate):
     font_file = asset(v['font'])
     for ci, chapter in enumerate(chapters):
         voice_start = round((chapter['start'] + chapter['lead']) * fps)
-        tracks['narration'].append(clip(f'voice-{ci}', 'pv-narration', voice_start,
-            min(total - voice_start, math.ceil(chapter['audio_duration'] * fps)),
-            props={'file': asset(chapter['audio']), 'volume': 1}, label=chapter['title']))
+        if chapter.get('audio'):
+            tracks['narration'].append(clip(f'voice-{ci}', 'pv-narration', voice_start,
+                min(total - voice_start, math.ceil(chapter['audio_duration'] * fps)),
+                props={'file': asset(chapter['audio']), 'volume': 1}, label=chapter['title']))
         for qi, cue in enumerate(chapter['cues']):
             start, end = round(cue['start'] * fps), round(cue['end'] * fps)
+            if end <= start:
+                raise VideoError('字幕不足一帧，请延长字幕时间或章节 duration。')
             tracks['captions'].append(clip(f'caption-{ci}-{qi}', 'pv-caption', start, end-start,
                 props={'text': cue['text'], 'color': v['foreground'], 'background': v['surface'], 'fontFamily': 'ProductVideoFont'}, label=cue['text']))
         for si, step in enumerate(chapter['steps']):
@@ -203,7 +206,8 @@ def timeline(config, chapters, public, render_plate):
                 continue
             if si == 0:
                 kind = chapter.get('transition', v['transition_style'])
-                seconds = min(chapter.get('transition_duration', v['transition']), chapter['lead'])
+                seconds = min(chapter.get('transition_duration', v['transition']),
+                              shot['duration'] / fps if chapter.get('timing_mode') == 'explicit-duration' else chapter['lead'])
             else:
                 kind = step.get('transition', v['step_transition'])
                 seconds = min(step.get('transition_duration', v['transition']), shot['duration']/fps*.3)
@@ -326,6 +330,8 @@ def build(config, allow_api=False, preview=False, project_only=False):
         report.update(sha256=file_hash(movie), bytes=movie.stat().st_size, assets=hashes,
             frames=math.ceil(chapters[-1]['end'] * config['video']['fps'] - 1e-8), chapters=len(chapters),
             subtitle_cues=sum(len(c['cues']) for c in chapters), renderer='Remotion + video-shotcraft',
+            voice_mode=config['voice'].get('mode', 'tts'),
+            caption_alignment=[c.get('caption_alignment', 'API word timestamps or explicit chapter captions') for c in chapters],
             upstream=catalogue()['upstream'], studio=str(folder / 'studio/project.json'),
             visual_review='unverified', listening_review='unverified')
         write_json(folder / 'verification.json', report)

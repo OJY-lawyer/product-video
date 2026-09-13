@@ -1,5 +1,4 @@
 from contextlib import contextmanager, ExitStack
-import fcntl
 import json
 import math
 from pathlib import Path
@@ -8,22 +7,16 @@ import wave
 from . import __version__
 from .common import VideoError, atomic_write, digest, file_hash, probe, run, write_json
 from .render import Renderer, encode_video
-from .subtitles import from_events, srt
+from .subtitles import from_events, from_text, srt
 from .tts import cache_location, cached_audio, generate
+from .locking import file_lock
 
 
 @contextmanager
 def project_lock(output):
     output.mkdir(parents=True, exist_ok=True)
-    with (output / ".build.lock").open("a") as lock:
-        try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            raise VideoError("同一个输出目录已有生成任务，请等待该任务结束。") from None
-        try:
-            yield
-        finally:
-            fcntl.flock(lock, fcntl.LOCK_UN)
+    with file_lock(output / '.build.lock', '同一个输出目录已有生成任务，请等待该任务结束。'):
+        yield
 
 
 def prepare(config, allow_api):
@@ -31,6 +24,21 @@ def prepare(config, allow_api):
     chapters, cursor = [], 0.0
     v = config["video"]
     for chapter in config["chapters"]:
+        if config['voice'].get('mode') == 'none':
+            # Explicit chapter lengths drive the same renderer and editable tracks.
+            # No credential, voice cache, synthetic speech or audio API is touched.
+            length = math.ceil(chapter['duration'] * v['fps'] - 1e-8) / v['fps']
+            cues = [] if v['subtitles'] == 'none' else chapter.get('captions')
+            alignment = 'explicit chapter captions'
+            if cues is None:
+                cues = from_text(chapter['narration'], chapter['duration'])
+                alignment = 'text display timing; not speech alignment'
+            cues = [{**cue, 'start': cue['start'] + cursor, 'end': cue['end'] + cursor} for cue in cues]
+            chapters.append({**chapter, 'start': cursor, 'end': cursor + length, 'lead': 0,
+                'audio_duration': length, 'audio': None, 'audio_sha256': None,
+                'timing_mode': 'explicit-duration', 'caption_alignment': alignment, 'cues': cues})
+            cursor += length
+            continue
         folder = cache_location(output, chapter, config["voice"])
         metadata = cached_audio(folder)
         if metadata is None:
@@ -65,6 +73,8 @@ def master_audio(chapters, folder):
         out.setframerate(sample_rate)
         written = 0
         for chapter in chapters:
+            if chapter.get('audio') is None:
+                continue
             start = round((chapter["start"] + chapter["lead"]) * sample_rate)
             if start < written:
                 raise VideoError("配音时间轴出现重叠。")
@@ -139,7 +149,7 @@ def build(config, allow_api=True, preview=False):
             return folder
         movie, report_path = folder / "product-introduction.mp4", folder / "verification.json"
         if movie.exists() and report_path.exists():
-            report = json.loads(report_path.read_text())
+            report = json.loads(report_path.read_text(encoding="utf-8"))
             if report["sha256"] == file_hash(movie):
                 write_json(output / "latest.json", {"movie": str(movie), "report": str(report_path)})
                 print(f"复用已验证成片：{movie}")
@@ -155,8 +165,9 @@ def build(config, allow_api=True, preview=False):
             partial.unlink(missing_ok=True)
         report.update(sha256=file_hash(movie), bytes=movie.stat().st_size, frames=frames,
                       chapters=len(chapters), subtitle_cues=sum(len(c["cues"]) for c in chapters),
-                      assets=hashes, voice=config["voice"]["speaker"], api="Volcengine TTS v3",
-                      caption_alignment="API word timestamps or explicit chapter captions; see project.resolved.json",
+                      assets=hashes, voice=None if config['voice'].get('mode') == 'none' else config["voice"]["speaker"],
+                      api=None if config['voice'].get('mode') == 'none' else 'Volcengine TTS v3',
+                      caption_alignment='explicit chapter captions or text display timing; not speech alignment' if config['voice'].get('mode') == 'none' else 'API word timestamps or explicit chapter captions; see project.resolved.json',
                       visual_review="unverified", listening_review="unverified",
                       renderer_3d=renderer.studio.info if renderer.studio else None)
         write_json(report_path, report)

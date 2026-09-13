@@ -19,7 +19,7 @@ def main():
     parser.add_argument('--mode', choices=('prepare', 'preview', 'render'), default='preview')
     args = parser.parse_args()
     path = create(args.output, schema_version=2)
-    raw = json.loads(path.read_text())
+    raw = json.loads(path.read_text(encoding="utf-8"))
     raw['product']['name'] = 'Product Video · 布局示例'
     raw['video'].update(width=args.width, height=round(args.width*9/16), fps=30,
         background='#151c1b', surface='#23312c', foreground='#f4f2e9', accent='#b9d8a0',

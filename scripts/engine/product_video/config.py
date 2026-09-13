@@ -1,13 +1,14 @@
 import copy
 import json
 import math
+import os
 from pathlib import Path
 import re
 import shutil
 
 from PIL import Image, ImageColor, ImageFont, ImageOps
 
-from .common import VideoError
+from .common import VideoError, executable
 from .motion import PRESETS, TRANSITIONS
 from .text_scenes import content_layout
 from .tts import DEFAULT_VOICE
@@ -81,7 +82,9 @@ def font_path(configured, base):
         if not p.is_file():
             raise VideoError("指定的字体文件不存在。")
         return str(p)
-    candidates = ["/System/Library/Fonts/PingFang.ttc", "/System/Library/Fonts/STHeiti Light.ttc",
+    windows_fonts = Path(os.environ.get('WINDIR', 'C:/Windows')) / 'Fonts'
+    candidates = [os.environ.get('PRODUCT_VIDEO_FONT', ''), str(windows_fonts / 'msyh.ttc'), str(windows_fonts / 'simhei.ttf'),
+                  "/System/Library/Fonts/PingFang.ttc", "/System/Library/Fonts/STHeiti Light.ttc",
                   "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"]
     for p in candidates:
         if Path(p).is_file():
@@ -92,7 +95,7 @@ def font_path(configured, base):
 def load(path, *, check_image_geometry=True):
     path = Path(path).expanduser().resolve()
     try:
-        config = json.loads(path.read_text())
+        config = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         raise VideoError("项目配置无法读取或不是有效 JSON。") from None
     known(config, ("schema_version", "product", "output", "voice", "video", "chapters", "audio"), "项目")
@@ -118,8 +121,10 @@ def load(path, *, check_image_geometry=True):
     if product.get("logo"):
         product["logo"] = asset(product["logo"])
     supplied_voice = config.get("voice", {})
-    known(supplied_voice, (*DEFAULT_VOICE, "pronunciation_dict", "transport"), "voice")
-    voice = copy.deepcopy(DEFAULT_VOICE) | supplied_voice
+    known(supplied_voice, (*DEFAULT_VOICE, "pronunciation_dict", "transport", "mode"), "voice")
+    if supplied_voice.get('mode', 'tts') not in ('tts', 'none'):
+        raise VideoError('voice.mode 仅支持 tts 或 none（无配音）。')
+    voice = copy.deepcopy(DEFAULT_VOICE) | {'mode': 'tts'} | supplied_voice
     if supplied_voice.get("speaker"):
         text(supplied_voice["speaker"], "speaker", 160)
         try:
@@ -190,6 +195,8 @@ def load(path, *, check_image_geometry=True):
             raise VideoError(f'{key} 必须是布尔值。')
     if video["encoder"] not in ("libx264", "h264_videotoolbox"):
         raise VideoError("encoder 仅支持 libx264 或 h264_videotoolbox。")
+    if os.name == 'nt' and video['encoder'] == 'h264_videotoolbox':
+        raise VideoError('h264_videotoolbox 仅用于 macOS；Windows 请使用 libx264。')
     if video["subtitles"] not in ("auto", "none"):
         raise VideoError("subtitles 仅支持 auto 或 none；其他语言也可在章节中提供 captions 时间轴。")
     for key in ("background", "surface", "foreground", "accent"):
@@ -201,7 +208,7 @@ def load(path, *, check_image_geometry=True):
     ImageFont.truetype(video["font"], 20)
     seen = set()
     for chapter in config["chapters"]:
-        known(chapter, ("id", "title", "narration", "steps", "captions", "transition", "transition_duration"), "章节")
+        known(chapter, ("id", "title", "narration", "steps", "captions", "transition", "transition_duration", "duration"), "章节")
         transition_fields(chapter)
         identifier = chapter.get("id", "")
         if not isinstance(identifier, str) or not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,63}", identifier) or identifier in seen:
@@ -209,6 +216,10 @@ def load(path, *, check_image_geometry=True):
         seen.add(identifier)
         text(chapter.get("title"), "章节标题", 100)
         text(chapter.get("narration"), "章节旁白")
+        if voice['mode'] == 'none':
+            number(chapter.get('duration'), .25, 3600, '无配音章节 duration（总秒数）')
+        elif 'duration' in chapter:
+            raise VideoError('章节 duration 仅用于 voice.mode: none；配音模式按实际音频编排。')
         if "captions" in chapter:
             if not isinstance(chapter["captions"], list):
                 raise VideoError("captions 必须为按时间排序的字幕数组。")
@@ -219,6 +230,8 @@ def load(path, *, check_image_geometry=True):
                 number(cue.get("end"), cue["start"], 3600, "字幕 end")
                 if cue["end"] == cue["start"]:
                     raise VideoError("字幕结束时间必须晚于开始时间。")
+                if voice['mode'] == 'none' and cue['end'] > chapter['duration']:
+                    raise VideoError('字幕 end 不能超过无配音章节 duration。')
                 text(cue.get("text"), "字幕", 80)
                 end = cue["end"]
         steps = chapter.get("steps")
@@ -315,6 +328,6 @@ def load(path, *, check_image_geometry=True):
     output = (base / Path(config.get("output", "output")).expanduser()).resolve()
     config.update(voice=voice, video=video, output=str(output))
     for command in ("ffmpeg", "ffprobe"):
-        if not shutil.which(command):
+        if not shutil.which(executable(command)):
             raise VideoError(f"缺少 {command}，请安装 FFmpeg。")
     return config

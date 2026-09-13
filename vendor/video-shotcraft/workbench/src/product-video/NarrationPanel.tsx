@@ -2,13 +2,14 @@ import { useEffect, useRef, useState } from 'react';
 import { useStore } from '../store';
 import type { ProjectData } from '../types';
 
-type Chapter = { id: string; title: string; narration: string };
+type Chapter = { id: string; title: string; narration: string; duration?: number };
 type Voice = { id: string; names: string[] };
 export function NarrationPanel() {
   const [open, setOpen] = useState(false);
   const [chapters, setChapters] = useState<Chapter[]>([]);
   const [voices, setVoices] = useState<Voice[]>([]);
   const [speaker, setSpeaker] = useState('');
+  const [silent, setSilent] = useState(false);
   const [voiceSearch, setVoiceSearch] = useState('');
   const [revision, setRevision] = useState('');
   const [status, setStatus] = useState('');
@@ -27,6 +28,7 @@ export function NarrationPanel() {
       if (!response.ok) throw new Error(data.error);
       if (!active) return;
       setRevision(data.revision); setChapters(data.chapters); setSpeaker(data.voice.speaker ?? 'zh_female_xiaohe_uranus_bigtts'); setVoices(data.voices); setReady(true);
+      setSilent(data.voice.mode === 'none');
       const current = useStore.getState().project;
       if (current.source !== data.project.source) useStore.getState().setProject(data.project);
     }).catch(error => { if (active) setStatus(error.message); });
@@ -56,7 +58,7 @@ export function NarrationPanel() {
     } catch (error) { setBusy(false); setStatus(String(error)); }
   };
   const generate = async () => {
-    setBusy(true); setStatus('正在提交配音任务…');
+    setBusy(true); setStatus(silent ? '正在更新字幕与镜头…' : '正在提交配音任务…');
     try {
       const response = await fetch('/api/product-video/voice', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ speaker, chapters, revision }) });
       const data = await response.json();
@@ -78,18 +80,18 @@ export function NarrationPanel() {
     }}>
       <section ref={dialog} className="pv-narration" role="dialog" aria-modal="true" aria-labelledby="pv-voice-title">
         <header><h2 id="pv-voice-title">旁白与字幕</h2><button className="btn" onClick={close}>关闭</button></header>
-        <label>搜索音色<input value={voiceSearch} placeholder="输入角色名称" onChange={e => setVoiceSearch(e.target.value)} /></label>
+        {!silent && <><label>搜索音色<input value={voiceSearch} placeholder="输入角色名称" onChange={e => setVoiceSearch(e.target.value)} /></label>
         <label>配音角色<select value={speaker} disabled={busy || !ready} onChange={e => setSpeaker(e.target.value)}>
           {voices.filter(voice => voice.id === speaker || voice.names.join(' ').toLowerCase().includes(voiceSearch.toLowerCase())).map(voice => <option key={voice.id} value={voice.id}>{voice.names.join(' / ')}</option>)}
-        </select></label>
+        </select></label></>}
         <div className="pv-chapters">{chapters.map((chapter, i) => <label key={chapter.id}>
           <span>{i+1}. {chapter.title}</span>
+          {silent && <span>章节时长（秒）<input type="number" min={.25} max={3600} step={.25} value={chapter.duration ?? 5} disabled={busy} onChange={e => setChapters(rows => rows.map((row, index) => index === i ? {...row, duration:Number(e.target.value)} : row))} /></span>}
           <textarea value={chapter.narration} disabled={busy} maxLength={2000} onChange={e => setChapters(rows => rows.map((row, index) => index === i ? { ...row, narration: e.target.value } : row))} />
         </label>)}</div>
-        <p>生成后按实际语音重新对齐字幕与镜头；未改动的配音会复用缓存。</p>
-        <p>重新配音会使用已配置的语音服务额度。时间轴的更新可以撤销。</p>
+        {silent ? <p>无配音项目按章节时长展示字幕。修改文稿会重新分配字幕显示时间；未改动的自定义字幕保留。</p> : <><p>生成后按实际语音重新对齐字幕与镜头；未改动的配音会复用缓存。</p><p>重新配音会使用已配置的语音服务额度。时间轴的更新可以撤销。</p></>}
         <div role="status" className="pv-status">{status}</div>
-        <button className="btn primary" disabled={busy || !ready} onClick={generate}>{busy ? '正在生成…' : '生成配音并更新镜头'}</button>
+        <button className="btn primary" disabled={busy || !ready} onClick={generate}>{busy ? '正在生成…' : silent ? '更新字幕与镜头' : '生成配音并更新镜头'}</button>
       </section>
     </div>}
   </>;

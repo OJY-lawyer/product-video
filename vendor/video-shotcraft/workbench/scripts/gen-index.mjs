@@ -26,10 +26,14 @@ const ensureLink = (linkPath, target) => {
   try {
     const st = lstatSync(linkPath);
     if (st.isSymbolicLink()) unlinkSync(linkPath);
+    // Git with core.symlinks=false checks out a symlink as its tiny target
+    // text. Convert only an exact expected placeholder, never user content.
+    else if (process.platform === 'win32' && st.isFile() && st.size < 4096 && readFileSync(linkPath, 'utf8') === target) unlinkSync(linkPath);
     else return true; // 真实文件/目录（成片工程链接进来的）：不动
   } catch { /* 不存在 */ }
   mkdirSync(dirname(linkPath), { recursive: true });
-  symlinkSync(target, linkPath);
+  symlinkSync(process.platform === 'win32' ? abs : target, linkPath,
+              process.platform === 'win32' ? 'junction' : 'dir');
   return true;
 };
 const publicDir = process.env.PRODUCT_VIDEO_STUDIO ? join(process.env.PRODUCT_VIDEO_STUDIO, "public") : join(wb, "public");
@@ -66,7 +70,7 @@ const walkDemos = (dir) => {
     if (MATERIAL_REQUIRED.has(stem)) continue;
     const src = readFileSync(p, "utf8");
     if (!new RegExp(`export const ${stem}\\s*:\\s*React\\.FC\\s*=`).test(src)) continue;
-    const rel = relative(demosDir, p).replace(/\.tsx$/, "");
+    const rel = relative(demosDir, p).replaceAll('\\', '/').replace(/\.tsx$/, "");
     const [category, slug] = rel.split("/");
     const m = DUR_PAT.exec(src);
     let durExport = m?.[1];

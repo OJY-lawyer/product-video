@@ -2,6 +2,7 @@
 from contextlib import contextmanager
 from datetime import datetime, timezone
 import json
+import os
 from pathlib import Path
 import re
 import shutil
@@ -43,7 +44,7 @@ def locator_spec(value):
 
 def read_plan(path):
     try:
-        plan = json.loads(Path(path).read_text())
+        plan = json.loads(Path(path).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         raise VideoError('截图计划不可读或不是有效 JSON。') from None
     known(plan, ('schema_version', 'target', 'shots'), '截图计划')
@@ -51,11 +52,11 @@ def read_plan(path):
         raise VideoError('截图计划 schema_version 必须为 1。')
     target = plan.get('target')
     known(target, ('provider', 'url', 'viewport', 'color_scheme', 'channel', 'headless', 'login',
-                   'bundle_id', 'window_title'), '截图目标')
+                   'bundle_id', 'window_title', 'process_id', 'window_handle'), '截图目标')
     provider = target.get('provider')
     if provider == 'web':
         origin(target.get('url'))
-        if any(k in target for k in ('bundle_id', 'window_title')):
+        if any(k in target for k in ('bundle_id', 'window_title', 'process_id', 'window_handle')):
             raise VideoError('网页目标不能包含原生应用字段。')
         viewport = target.setdefault('viewport', {'width': 1440, 'height': 900})
         known(viewport, ('width', 'height'), 'viewport')
@@ -72,14 +73,17 @@ def read_plan(path):
             locator_spec(target['login'].get('ready'))
             number(target['login'].get('timeout', 300), 1, 900, '登录等待秒数')
     elif provider == 'macos':
-        if any(k in target for k in ('url', 'viewport', 'color_scheme', 'channel', 'headless', 'login')):
+        if any(k in target for k in ('url', 'viewport', 'color_scheme', 'channel', 'headless', 'login', 'process_id', 'window_handle')):
             raise VideoError('macOS 目标不能包含网页字段。')
         if not isinstance(target.get('bundle_id'), str) or not re.fullmatch(r'[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+', target['bundle_id']):
             raise VideoError('请指定应用真实的 bundle_id。')
         if 'window_title' in target:
             text(target['window_title'], '窗口标题', 500)
+    elif provider == 'windows':
+        from .windows_capture import _validated_target
+        _validated_target(target)
     else:
-        raise VideoError('自动截图目前支持 web 和 macos。')
+        raise VideoError('自动截图支持 web、macos 和只读 windows 目标窗口。')
     shots = plan.get('shots')
     if not isinstance(shots, list) or not 1 <= len(shots) <= 60:
         raise VideoError('截图计划需包含 1–60 个画面。')
@@ -99,7 +103,7 @@ def read_plan(path):
         for action in actions:
             known(action, ('action', 'target', 'value', 'url', 'offset'), '截图操作')
             kind = action.get('action')
-            allowed = ('goto', 'click', 'fill', 'press', 'scroll', 'wait') if provider == 'web' else ('press', 'wait')
+            allowed = ('goto', 'click', 'fill', 'press', 'scroll', 'wait') if provider == 'web' else ('wait',) if provider == 'windows' else ('press', 'wait')
             if kind not in allowed:
                 raise VideoError('截图操作不受此目标支持。')
             expected = {'action', 'url'} if kind == 'goto' else {'action', 'target', 'value'} if kind in ('fill',) or (kind == 'press' and provider == 'web') else {'action', 'target'}
@@ -116,7 +120,7 @@ def read_plan(path):
             if 'value' in action:
                 text(action['value'], '操作内容', 1000)
         masks = shot.setdefault('mask', [])
-        if not isinstance(masks, list) or len(masks) > 30 or (masks and provider == 'macos'):
+        if not isinstance(masks, list) or len(masks) > 30 or (masks and provider != 'web'):
             raise VideoError('mask 仅支持网页控件列表；原生应用应先隐藏私人内容再截图。')
         for m in masks:
             locator_spec(m)
@@ -133,6 +137,11 @@ def read_plan(path):
 def validate_locator(value, provider):
     if provider == 'web':
         locator_spec(value)
+    elif provider == 'windows':
+        known(value, ('role', 'name'), 'Windows 窗口定位')
+        if value.get('role') != 'window':
+            raise VideoError('Windows ready/wait 仅支持 role: window 和精确窗口名称，不支持控件操作。')
+        text(value.get('name'), '窗口精确标题', 500)
     else:
         known(value, ('role', 'name'), '原生控件定位')
         text(value.get('role'), 'AX role', 100)
@@ -178,6 +187,8 @@ def web_session(target, record_dir=None):
         with sync_playwright() as pw:
             channel = target.get('channel', 'chromium')
             options = {'channel': channel} if channel != 'chromium' else {}
+            if channel == 'chromium' and os.environ.get('PRODUCT_VIDEO_BROWSER'):
+                options['executable_path'] = os.environ['PRODUCT_VIDEO_BROWSER']
             state = None
             if 'login' in target:
                 print('需先登录：请在临时浏览器完成登录；检测成功后关闭该窗口，再在后台静默截图。', flush=True)
@@ -347,7 +358,7 @@ def capture_web(page, target, shot, destination, recording=False):
 
 def capture_project(project):
     project = Path(project).expanduser().resolve()
-    raw = json.loads(project.read_text())
+    raw = json.loads(project.read_text(encoding="utf-8"))
     if not isinstance(raw, dict) or not isinstance(raw.get('capture'), str):
         raise VideoError('项目需用 capture 字段指向截图计划 JSON。')
     plan_path = (project.parent / raw['capture']).resolve()
@@ -375,6 +386,11 @@ def capture_project(project):
                 with web_session(target) as page:
                     for shot in plan['shots']:
                         capture_one(shot, run, records, lambda s, d: capture_web(page, target, s, d))
+            elif target['provider'] == 'windows':
+                from .windows_capture import WindowsCapture
+                native = WindowsCapture(target, root)
+                for shot in plan['shots']:
+                    capture_one(shot, run, records, native.capture)
             else:
                 from .native_capture import NativeCapture
                 native = NativeCapture(target, root)
@@ -386,7 +402,7 @@ def capture_project(project):
                                       for r in records for name, point in r.get('points', {}).items()})
             compiled = run / 'project.json'; write_json(compiled, resolved)
             load(compiled)
-            source = origin(target['url']) if target['provider'] == 'web' else target['bundle_id']
+            source = origin(target['url']) if target['provider'] == 'web' else target['bundle_id'] if target['provider'] == 'macos' else native.inspect()['window']
             report = {'source': source, 'provider': target['provider'], 'plan_sha256': file_hash(plan_path),
                       'project_sha256': file_hash(project), 'shots': records, 'project': str(compiled)}
             write_json(run / 'manifest.json', report)

@@ -9,6 +9,33 @@ def normalized(text):
     return "".join(c for c in unicodedata.normalize("NFKC", text).casefold() if c.isalnum())
 
 
+def from_text(text, duration, max_chars=28):
+    """Allocate reading time for silent captions; this is not speech alignment."""
+    pieces = []
+    for sentence in re.findall(r'[^。！？.!?\n]+[。！？.!?]?|[。！？.!?]+', text):
+        sentence = sentence.strip()
+        while len(sentence) > max_chars:
+            # Prefer punctuation or word boundaries while keeping all text.
+            split = max(sentence.rfind(c, 1, max_chars + 1) for c in ' ，,；;')
+            split = split + 1 if split >= max_chars // 2 else max_chars
+            pieces.append(sentence[:split].strip())
+            sentence = sentence[split:].strip()
+        if sentence:
+            pieces.append(sentence)
+    if not pieces:
+        raise VideoError('纯字幕文稿不能为空。')
+    weights = [max(1, len(piece)) for piece in pieces]
+    total = sum(weights)
+    offset, cues = 0, []
+    for piece, weight in zip(pieces, weights):
+        start = duration * offset / total
+        offset += weight
+        cues.append({'start': start, 'end': duration * offset / total, 'text': piece})
+    if any(round(c['end'] * 1000) <= round(c['start'] * 1000) for c in cues):
+        raise VideoError('字幕过密，请增加章节 duration 或提供明确 captions。')
+    return cues
+
+
 def from_events(events, narration, duration, max_chars=28):
     words = []
     for event in events:

@@ -100,7 +100,7 @@ const renderExportPlugin = (): Plugin => {
               }
             };
 
-            const child = spawn(process.execPath, ['scripts/product-video.mjs', 'render', propsFile], { cwd: root });
+            const child = spawn(process.execPath, ['scripts/product-video.mjs', 'render', propsFile], { cwd: root, windowsHide:true });
             let stopped = false;
             const timeout = setTimeout(() => { stopped = true; job.lastLine = '导出超过两小时，任务已停止；请缩短工程后重试。'; child.kill('SIGTERM'); setTimeout(() => { if (child.exitCode === null) child.kill('SIGKILL'); }, 10000).unref(); }, 7_200_000);
             const shutdown = () => child.kill('SIGTERM');
@@ -128,6 +128,7 @@ const renderExportPlugin = (): Plugin => {
         // POST /api/export/:id/reveal —— Finder 里显示成片
         if (req.method === "POST" && m![2]) {
           if (process.platform === "darwin") spawn("open", ["-R", job.output]);
+          else if (process.platform === 'win32') spawn('explorer.exe', ['/select,', job.output], {windowsHide:true});
           send(200, { ok: true });
           return;
         }

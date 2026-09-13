@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import subprocess
 import tempfile
+import shutil
 
 
 class VideoError(Exception):
@@ -28,7 +29,8 @@ def atomic_write(path, data, mode=0o644):
     fd, tmp = tempfile.mkstemp(prefix=".pending-", dir=path.parent)
     try:
         with os.fdopen(fd, "wb") as f:
-            os.fchmod(f.fileno(), mode)
+            if os.name != 'nt':
+                os.fchmod(f.fileno(), mode)
             f.write(data)
             f.flush()
             os.fsync(f.fileno())
@@ -43,7 +45,8 @@ def write_json(path, data):
 
 def run(argv, timeout=120):
     try:
-        p = subprocess.run([str(x) for x in argv], capture_output=True, timeout=timeout)
+        p = subprocess.run([executable(str(argv[0])), *[str(x) for x in argv[1:]]],
+                           capture_output=True, timeout=timeout, **process_options())
     except FileNotFoundError:
         raise VideoError(f"缺少 {argv[0]}，请安装后重试。") from None
     except subprocess.TimeoutExpired:
@@ -51,6 +54,16 @@ def run(argv, timeout=120):
     if p.returncode:
         raise VideoError(f"{argv[0]} 失败（退出码 {p.returncode}）：{p.stderr.decode(errors='replace')[-1600:]}")
     return p.stdout
+
+
+def executable(name):
+    """Resolve optional per-process tools without changing the user's PATH."""
+    configured = os.environ.get('PRODUCT_VIDEO_' + name.upper())
+    return configured or shutil.which(name) or name
+
+
+def process_options():
+    return {'creationflags': subprocess.CREATE_NO_WINDOW} if os.name == 'nt' else {}
 
 
 def probe(path):

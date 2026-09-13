@@ -1,5 +1,11 @@
 # Product Video integration
 
+## Windows and subtitle-only adaptation
+
+The workbench index generator uses directory junctions on Windows and normalizes import/catalogue paths to forward slashes. The integrated renderer accepts an explicit browser and WebGL backend; FFmpeg verification accepts per-process executable paths and hides helper consoles. The narration panel and server support explicit-duration, subtitle-only projects without speech calls, while retaining editable caption and picture tracks. Original library source, assets and license notices remain included.
+
+On Windows the shared export renderer materializes public junctions into a temporary real directory before Remotion bundles them. This avoids Remotion's attempt to recreate symlinks with privileges; the temporary staging directory is removed after bundle creation.
+
 Upstream revision: `5e71af35a2daee492dd3ea93e5e8903f32dcd13c`.
 
 The original motion library is incorporated into Product Video. Modified source routes copy, glyph animation, media, fonts and themes through scoped project settings. The workbench adds narration, captions, transitions, project preparation and the shared export path. Original dependency and audio licenses remain in force.

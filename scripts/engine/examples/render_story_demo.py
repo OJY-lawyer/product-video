@@ -29,7 +29,7 @@ def timed_chapters(config, durations):
 
 def render_story(destination, style='gallery', width=1920):
     destination = Path(destination).expanduser().resolve()
-    original = json.loads(create(destination).read_text())
+    original = json.loads(create(destination).read_text(encoding="utf-8"))
     original['product']['name'] = 'Product Video'
     original['video'] = {'style': 'classic', 'width': width, 'height': round(width * 9 / 16), 'fps': 30}
     original['chapters'] = [

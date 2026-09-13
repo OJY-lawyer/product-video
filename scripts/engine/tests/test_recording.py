@@ -35,7 +35,7 @@ class RecordingTests(unittest.TestCase):
                 movie = record_web(root / 'capture.json', root / 'recording.mp4')
             finally:
                 server.shutdown(); server.server_close(); thread.join(timeout=2)
-            report = json.loads(movie.with_suffix('.recording.json').read_text())
+            report = json.loads(movie.with_suffix('.recording.json').read_text(encoding="utf-8"))
             self.assertEqual(report['full_decode'], 'passed')
             self.assertEqual(report['sha256'], file_hash(movie))
             for at, channel in [(.2, 0), (report['duration'] - .2, 2)]:

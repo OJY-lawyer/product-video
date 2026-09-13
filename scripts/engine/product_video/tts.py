@@ -129,6 +129,9 @@ async def synthesize(text, voice, key, timeout=240):
 
 def cache_location(output, chapter, voice):
     effective = dict(voice)
+    # 'mode' is an orchestration choice, not a TTS request parameter. Preserve
+    # existing voice cache signatures when loading older projects.
+    effective.pop('mode', None)
     if "transport" in effective:
         try:
             if effective["transport"] == resolve(effective["speaker"])["transport"]:
@@ -144,7 +147,7 @@ def cached_audio(folder):
     if not audio.exists() or not meta.exists():
         return None
     try:
-        value = json.loads(meta.read_text())
+        value = json.loads(meta.read_text(encoding="utf-8"))
         if value["sha256"] == file_hash(audio) and value["duration"] > 0:
             return value
     except (OSError, ValueError, KeyError, TypeError):

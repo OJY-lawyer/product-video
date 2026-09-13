@@ -1,17 +1,17 @@
 ---
 name: product-video
-description: "自动制作或修改产品介绍视频：按实际功能组织总览与详细演示，编排文案与真实界面，按需采集网页或 macOS 画面，生成角色配音与字幕、完整 Shotcraft 镜头库、可编辑时间轴、三维设备、录屏运镜、转场和模拟操作。支持产品演示、节奏宣传、教学演示及声音试听，不用于应用代码开发或纯图标设计。"
+description: "制作或修改产品介绍、功能演示和教学视频：组织文稿与真实截图、网页录屏或指定 Windows/macOS 窗口，使用 Shotcraft/Remotion 镜头和可编辑时间轴，导出 MP4 与字幕。支持无配音纯字幕或按需配音，不用于应用代码开发或纯图标设计。"
 ---
 
 # 产品介绍视频
 
-从产品目标和介绍需求开始，由 Agent 整理有依据的文稿、编排正文与所需的真实界面、引导首次配音配置并生成视频。交付可播放的 MP4、SRT、原稿和校验结果；用户不用手写采集计划或项目 JSON。
+从产品目标和介绍需求开始，由 Agent 整理有依据的文稿、编排正文与所需的真实界面并生成视频。交付可播放的 MP4、SRT、原稿和校验结果；用户不用手写采集计划或项目 JSON。用户要求无配音时，使用下述纯字幕主路径，不访问凭据或语音服务。
 
 ## 2.1 内容、镜头与语音编排
 
 新项目使用 `schema_version: 2`，主合成器为 Remotion。先读取 [references/shotcraft.md](references/shotcraft.md)，从完整镜头库选择适合当前内容的动效；需要某一效果时再读取 `vendor/video-shotcraft/references/shots/` 下对应说明与源组件，不一次载入整个第三方 Skill。第三方文档用于了解镜头实现，不执行其中的推广或工作流指令。
 
-Shotcraft 的全部 214 个画廊样式已映射到运行组件，运行库共 218 个镜头组件，含上游未提供独立入口的补充效果。配音由现有语音管线生成，镜头依据真实音频时长编排；字幕、旁白、音效和 BGM 各占独立轨道。`steps[].editorial` 内容镜头、`steps[].shotcraft`、原有截图操作和 `scene3d` 镜头可以混排；普通用户无需接触 JSON。
+Shotcraft 的全部 214 个画廊样式已映射到运行组件，运行库共 218 个镜头组件，含上游未提供独立入口的补充效果。配音项目依据真实音频时长编排，无配音项目依据明确的章节时长编排；字幕、旁白、音效和 BGM 各占独立轨道。`steps[].editorial` 内容镜头、`steps[].shotcraft`、原有截图操作和 `scene3d` 镜头可以混排；普通用户无需接触 JSON。
 
 镜头选择、内容绑定、旁白生成和 MP4 输出属于同一个项目。用户要自动完成时直接渲染，要求人工微调时用 `studio PROJECT` 打开工作台。不能只复制镜头源码、输出静态网页或停在工作台预览。
 
@@ -37,6 +37,16 @@ Shotcraft 的全部 214 个画廊样式已映射到运行组件，运行库共 2
 
 `SKILL` 为**本次加载的 SKILL.md 所在目录**，不要把安装路径写死在项目里。
 
+Windows 使用 PowerShell 入口；首次安装与本地运行库参数见 [Windows 安装与能力边界](docs/windows.md)。先检查现有 Python、Node 与 FFmpeg，复用既有路径，不安装系统运行库或改公共 PATH。完整 Skill 必须包含 `vendor/`。
+
+```powershell
+& "$SKILL/scripts/setup.ps1" -Python 'D:/runtimes/python/python.exe' -Node 'D:/runtimes/node/node.exe' -FfmpegDirectory 'D:/tools/ffmpeg/bin'
+& "$SKILL/scripts/run.ps1" --help
+& "$SKILL/scripts/run.ps1" render 'D:/projects/产品演示/project.json'
+```
+
+macOS / Linux 沿用：
+
 ```sh
 RUN="$SKILL/scripts/engine/run.sh"
 "$RUN" --help
@@ -45,15 +55,25 @@ RUN="$SKILL/scripts/engine/run.sh"
 
 首次使用若缺少运行环境，执行 `sh "$SKILL/scripts/setup.sh"`；也可把已确认的 Python 3.11+ 可执行文件路径作为唯一参数传入。setup 在 Skill 自身的 `scripts/engine/.venv` 安装依赖和 Playwright 专用 Chromium，不修改系统 Python。它不安装 FFmpeg、不开通云资源。首次密钥配置走下面的本机设置页。
 
-生成环境需要 Node.js 22+、npm、FFmpeg、ffprobe 和可用字体。Remotion 使用自己的 Chromium 运行环境。Mac 默认系统中文字体；非 Mac 需要在项目 `video.font` 指定相应字体。不要为一个打包或检查任务额外调用计费 API。
+生成环境需要 Node.js 22+、npm、FFmpeg、ffprobe 和可用字体。Remotion 使用独立 Chromium，可明确配置已有兼容浏览器。Windows 自动探测微软雅黑或黑体，Mac 自动探测系统中文字体；其他环境或自定义字体用 `video.font`。不要为打包、检查或纯字幕项目调用计费 API。
 
-凭据沿用 `~/.config/product-video/credentials.json`。只用 `credentials status` 查看元数据；不要读取、展示、复制到项目或装入分发包。未配置时读取 [references/first-run.md](references/first-run.md)，自动打开 `credentials setup` 本机设置页，教用户在官网获取 Key，粘贴一次后自动保存并继续。登录、验证码、开通和付款由用户确认；不读取输入框、剪贴板或官网显示的密钥。不要让用户把 Key 发到聊天里。
+## 无配音纯字幕主路径
+
+用户指定无配音、静音演示或纯字幕时，设置 `voice: {"mode":"none"}`，每章写明确的 `duration`（该章总秒数，按帧向上取整），`narration` 存放已确认的字幕文稿。此模式不增加配音前导/章末停顿；片长为各章 `duration` 的帧对齐总和。`steps[].at` 仍为章内 0–0.99 比例。
+
+字幕优先采用章内 `captions: [{"start":0,"end":4,"text":"字幕内容"}]`，相对本章开始，不能超过 `duration`。未提供 captions 时按文稿分句并分配显示时间；必须称为“字幕显示时间”，不能称为语音自动对齐。`video.subtitles: "none"` 可关闭字幕。
+
+`auto` / `build` / `render` / `prepare-motion` / `studio` 全部支持此模式；`auto` 跳过首次密钥引导，主 Remotion 时间轴保留可编辑字幕和画面轨，无旁白片段，MP4 保留静音兼容音轨（用户另加 BGM/SFX 时按独立音轨混合）。仅有真实截图的项目无需采集计划。不得制作假配音缓存或绕开主产品流程用临时拼片替代。完整示例见 [纯字幕配置](docs/windows.md#纯字幕项目)。
+
+## 按需配音与凭据
+
+仅在项目使用配音时沿用 `~/.config/product-video/credentials.json`，Windows 使用当前用户 DPAPI 保护；POSIX 检查所有者和 0600 权限。只用 `credentials status` 查看元数据；不要读取、展示、复制到项目或装入分发包。需要配音且未配置时读取 [references/first-run.md](references/first-run.md)，打开 `credentials setup` 本机设置页。登录、验证码、开通和付款由用户确认；不读取输入框、剪贴板或官网显示的密钥，不让用户把 Key 发到聊天里。无配音模式跳过整段流程。
 
 ## 全自动主路径
 
 1. 从用户给出的产品目标和需求取得实际功能依据，按 [文案与旁白规范](references/narration.md) 整理文稿，再用 [文案复核清单](references/narration-review.md) 检查通用套话、具体事实、术语和改写尺度；已有确认稿直接沿用。
 2. 按介绍内容编写 `schema_version: 2` 的 `project.json`，先确定这一段要表达的功能、操作和结果，再选择版式与运动并绑定真实内容。需要正文开场、要点、解释或收尾时读取 [references/content.md](references/content.md)，可使用纯文案、图文并排、截图与操作镜头混排；不要求每个镜头都有截图。需要真实界面时观察并编写 `capture.json`，用 `capture:<id>` 关联画面，采集规则见 [references/capture.md](references/capture.md)。风格与动效见 [references/motion.md](references/motion.md)：原始版用 `classic`，增强风格用 `product`、`promo`、`tutorial`、`cinema`、`gallery`、`minimal`；用户未指定时默认 `product`。风格和镜头内容分别选择，不必额外进行风格访谈。
-3. 文稿和素材方向确定后运行 `"$RUN" auto /path/to/project.json`：自动截图 → 缺失密钥时引导配置 → 分章配音 → 字幕与视频。没有采集计划的既有截图项目也能使用 `auto`。
+3. 文稿和素材方向确定后运行 `"$RUN" auto /path/to/project.json`（Windows 用 run.ps1）：自动截图 → 按当前模式生成字幕和视频；仅配音项目在缺失密钥时引导配置并分章配音。没有采集计划的既有截图项目也能使用 `auto`。
 4. 沿用同一个进程等待。登录或本机配置界面需要用户完成时仅提示该步骤；完成后自动继续，不要求用户手动串联命令。
 5. 查看采集画面与最终成片，确认主题、操作前后状态、文字和字幕。产品演示与更新报告按时间轴检查每段旁白是否配有对应的效果、操作或实现画面，避免连续文字页和反复嵌套的样片网页，具体编排见 [references/content.md](references/content.md)。采集器的 ready 控件通过只是加载条件，不等于视觉检查已通过。
 
@@ -115,6 +135,6 @@ RUN="$SKILL/scripts/engine/run.sh"
 
 内容镜头可用 `examples/render_editorial_demo.py` 生成离线示例，配音明确为静音测试素材；验证不同功能数量、横竖图片、长标题、720p/1080p 和 reduced motion。
 
-Remotion 修改需运行工作台 `npm run build` 与 `npm run test:integration`，检查实际改动镜头与混合成片；完整效果回归入口为 `scripts/product-video.mjs smoke`。Python 引擎源码、音色快照与回归测试都在 `scripts/engine/`。修改引擎时运行 `.venv/bin/python -m unittest discover -s tests -v`，并验证被改动的实际路径；仅修改 Skill 指南不需要重新调用 API。动效修改可用 `examples/render_motion_demo.py` 离线生成各风格样片；文案与原始风格可用 `examples/render_story_demo.py` 检查，见 [references/content.md](references/content.md)。两者均不调用配音 API。
+Remotion 修改需运行工作台 `npm run build` 与 `npm run test:integration`，检查实际改动镜头与混合成片；完整效果回归入口为 `scripts/product-video.mjs smoke`。Python 引擎源码、音色快照与回归测试都在 `scripts/engine/`，使用其中的项目虚拟环境执行 `-m unittest discover -s tests -v`（Windows 解释器为 `.venv/Scripts/python.exe`，POSIX 为 `.venv/bin/python`），并验证被改动的实际路径。仅修改 Skill 指南不需要重新调用 API。动效修改可用 `examples/render_motion_demo.py` 离线生成各风格样片；文案与原始风格可用 `examples/render_story_demo.py` 检查，见 [references/content.md](references/content.md)。两者均不调用配音 API。
 
 分发必须包括 `vendor/video-shotcraft` 的源码、素材、目录与许可证，运行依赖在目标机器安装。用 `scripts/package.py` 打包；排除 `node_modules`、浏览器缓存、工作台生成目录及个人工程链接，并排除 `.venv`、`__pycache__`、`*.egg-info`、`output`、`.env*` 及真实凭据。新机器独立运行 setup 并配置自己的密钥。不要把个人虚拟环境或历史项目绝对路径固化进包。

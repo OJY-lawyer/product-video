@@ -8,7 +8,7 @@ from .config import font_path
 FIRST_NARRATION = "根据介绍稿生成配音与字幕，按章节合成文案和界面画面。"
 
 
-def create(folder, schema_version=1):
+def create(folder, schema_version=1, silent=False):
     folder = Path(folder).expanduser().resolve()
     if folder.exists() and any(folder.iterdir()):
         raise VideoError("示例目录不是空目录，请另选一个目录；不会覆盖已有项目。")
@@ -56,6 +56,10 @@ def create(folder, schema_version=1):
             {"id": "appearance", "title": "展示不同界面", "narration": "深色与浅色界面可并排展示，便于比较布局和视觉差异。",
              "steps": [{"at": 0, "images": ["assets/dark-1.png", "assets/light-1.png"],
                         "labels": ["深色示例", "浅色示例"]}]}]}
+    if silent:
+        config['voice'] = {'mode': 'none'}
+        for chapter in config['chapters']:
+            chapter['duration'] = 6
     write_json(folder / "project.json", config)
     print(f"示例已创建：{folder / 'project.json'}\n其中的界面是演示素材，请换成真实截图。")
     return folder / "project.json"

@@ -29,13 +29,19 @@ def parser():
     auto = sub.add_parser("auto", help="自动截图、首次密钥引导、配音和成片")
     auto.add_argument("project")
     auto.add_argument("--voice", help="本次使用的音色名称或 ID")
-    inspect = sub.add_parser("inspect-app", help="读取指定 macOS 窗口的控件名称，供截图计划定位")
-    inspect.add_argument("bundle_id")
+    listing_windows = sub.add_parser('list-windows', help='只读列出 Windows 顶层窗口 PID/HWND，不截图或操作')
+    listing_windows.add_argument('--pid', type=int)
+    inspect = sub.add_parser("inspect-app", help="读取指定 macOS 控件或 Windows 目标窗口元数据")
+    inspect.add_argument("bundle_id", nargs='?')
+    inspect.add_argument('--provider', choices=('macos', 'windows'), default='macos')
+    inspect.add_argument('--pid', type=int)
+    inspect.add_argument('--window-handle', type=int)
     inspect.add_argument("--window-title", default="")
     inspect.add_argument("--output", default=".captures")
     init = sub.add_parser("init", help="创建可直接生成短片的示例项目")
     init.add_argument("directory")
     init.add_argument("--legacy", action="store_true", help="创建旧版渲染项目")
+    init.add_argument('--silent', action='store_true', help='创建无配音纯字幕示例，每章六秒，不需要密钥')
     motions = sub.add_parser('motions', help='查看完整 Shotcraft 镜头库与音效库')
     motions.add_argument('--search', default='')
     motions.add_argument('--kind', choices=('motions', 'sfx', 'bgm'), default='motions')
@@ -92,12 +98,18 @@ def choose():
 
 
 def apply_voice(config, name):
+    if config['voice'].get('mode') == 'none':
+        raise VideoError('当前项目为无配音模式；如需配音请明确把 voice.mode 改为 tts。')
     selected = voices.settings(name)
     config["voice"].update(selected)
     return selected
 
 
 def execute(args):
+    if args.command == 'list-windows':
+        from .windows_capture import list_windows
+        print(json.dumps(list_windows(args.pid), ensure_ascii=False, indent=2))
+        return
     if args.command == 'review':
         from .review import review
         return review(args.project)
@@ -136,7 +148,7 @@ def execute(args):
         from .recording import record_web
         return record_web(args.plan, args.output)
     if args.command == "init":
-        return create(args.directory, schema_version=1 if args.legacy else 2)
+        return create(args.directory, schema_version=1 if args.legacy else 2, silent=args.silent)
     if args.command == "voices":
         rows = voices.search(args.search, args.language, args.model)
         if args.csv:
@@ -161,6 +173,18 @@ def execute(args):
         print(f"试听：{folder / 'voice.mp3'}（{meta['duration']:.2f} 秒）")
         return
     if args.command == "inspect-app":
+        if args.provider == 'windows':
+            from .windows_capture import WindowsCapture
+            if args.bundle_id:
+                raise VideoError('Windows inspect-app 使用 --pid 或 --window-handle，不接受 bundle_id。')
+            target = {'provider': 'windows'}
+            for key, value in [('process_id', args.pid), ('window_handle', args.window_handle), ('window_title', args.window_title)]:
+                if value is not None and value != '':
+                    target[key] = value
+            print(json.dumps(WindowsCapture(target, Path(args.output).resolve()).inspect(), ensure_ascii=False, indent=2))
+            return
+        if not args.bundle_id:
+            raise VideoError('macOS inspect-app 需要 bundle_id；Windows 使用 --provider windows。')
         from .native_capture import NativeCapture
         target = {"bundle_id": args.bundle_id, "window_title": args.window_title}
         print(json.dumps(NativeCapture(target, Path(args.output).resolve()).inspect(), ensure_ascii=False))
@@ -169,7 +193,7 @@ def execute(args):
         from .capture import capture_project
         from .onboarding import setup
         path = Path(args.project).expanduser().resolve()
-        raw = json.loads(path.read_text())
+        raw = json.loads(path.read_text(encoding="utf-8"))
         if args.command == "capture" or "capture" in raw:
             path = capture_project(path)
         if args.command == "capture":
@@ -177,8 +201,10 @@ def execute(args):
         config = load(path)
         if args.voice:
             apply_voice(config, args.voice)
-        setup()
-        return build(config, allow_api=True)
+        silent = config['voice'].get('mode') == 'none'
+        if not silent:
+            setup()
+        return build(config, allow_api=not silent)
     config = load(args.project)
     if args.command == "select-voice":
         name = args.name or choose()
@@ -187,11 +213,11 @@ def execute(args):
             return
         selected = voices.settings(name)
         path = Path(args.project).expanduser().resolve()
-        original = json.loads(path.read_text())
+        original = json.loads(path.read_text(encoding="utf-8"))
         original.setdefault("voice", {}).update(selected)
         backup = path.with_suffix(path.suffix + ".before-voice")
         if not backup.exists():
-            write_json(backup, json.loads(path.read_text()))
+            write_json(backup, json.loads(path.read_text(encoding="utf-8")))
         write_json(path, original)
         print(f"已保存：{' / '.join(voices.resolve(name)['names'])}；接口 {selected['transport']}。")
         return
@@ -199,8 +225,13 @@ def execute(args):
         apply_voice(config, args.voice)
     if args.command == "check":
         print(f"配置与素材检查通过：{config['product']['name']}，{len(config['chapters'])} 章。")
-        print(f"配音：{config['voice']['speaker']}；接口：{voices.transport(config['voice'])}。未调用 API。")
+        if config['voice'].get('mode') == 'none':
+            print('无配音：按章节 duration 编排，字幕为显示时间轴。未调用 API。')
+        else:
+            print(f"配音：{config['voice']['speaker']}；接口：{voices.transport(config['voice'])}。未调用 API。")
     elif args.command == "voice":
+        if config['voice'].get('mode') == 'none':
+            raise VideoError('当前项目为无配音模式；使用 prepare-motion 或 render 生成字幕与画面。')
         with project_lock(Path(config["output"])):
             for chapter in config["chapters"]:
                 folder, meta = generate(chapter, config["voice"], Path(config["output"]))

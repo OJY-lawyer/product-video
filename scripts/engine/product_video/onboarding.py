@@ -58,10 +58,10 @@ class SetupHandler(BaseHTTPRequestHandler):
         if not self.host_ok():
             return self.reply(403, {'error': '仅允许本机配置页面访问。'})
         if self.path == '/':
-            body = (Path(__file__).parent / 'data' / 'setup.html').read_text()
+            body = (Path(__file__).parent / 'data' / 'setup.html').read_text(encoding="utf-8")
             return self.reply(200, body.replace('{{CSRF}}', self.server.csrf), 'text/html; charset=utf-8')
         if self.path == '/setup.js':
-            return self.reply(200, (Path(__file__).parent / 'data' / 'setup.js').read_text(), 'text/javascript; charset=utf-8')
+            return self.reply(200, (Path(__file__).parent / 'data' / 'setup.js').read_text(encoding="utf-8"), 'text/javascript; charset=utf-8')
         return self.reply(404, {'error': '页面不存在。'})
 
     def do_POST(self):

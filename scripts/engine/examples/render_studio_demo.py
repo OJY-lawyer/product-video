@@ -29,7 +29,7 @@ def recorded_fixture(folder):
         for name, size in [('phone', (440, 956)), ('desktop', (1728, 1117))]:
             dest = folder / f'{name}.mp4'
             if dest.exists():
-                report = json.loads(dest.with_suffix('.recording.json').read_text())
+                report = json.loads(dest.with_suffix('.recording.json').read_text(encoding="utf-8"))
                 if file_hash(dest) != report['sha256']:
                     raise ValueError('Existing fixture recording changed; use a new output directory.')
                 continue

@@ -3,6 +3,7 @@ import base64
 import copy
 import gzip
 import json
+import os
 from pathlib import Path
 import struct
 import tempfile
@@ -199,11 +200,13 @@ class LocalTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             p = Path(temp) / 'auth' / 'credentials.json'
             credentials.save_key('synthetic-key-only', p)
-            self.assertEqual(p.stat().st_mode & 0o777, 0o600)
+            if os.name != 'nt':
+                self.assertEqual(p.stat().st_mode & 0o777, 0o600)
             self.assertEqual(credentials.load_key(p), 'synthetic-key-only')
-            p.chmod(0o644)
-            with self.assertRaises(VideoError):
-                credentials.load_key(p)
+            if os.name != 'nt':
+                p.chmod(0o644)
+                with self.assertRaises(VideoError):
+                    credentials.load_key(p)
 
     def test_cache_integrity_and_invalidation(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -232,7 +235,7 @@ class ConfigRenderTests(unittest.TestCase):
     def setUpClass(cls):
         cls.temp = tempfile.TemporaryDirectory()
         cls.project = create(Path(cls.temp.name) / 'project')
-        cls.original = json.loads(cls.project.read_text())
+        cls.original = json.loads(cls.project.read_text(encoding="utf-8"))
 
     @classmethod
     def tearDownClass(cls):

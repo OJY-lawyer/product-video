@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { readFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { readFileSync, mkdtempSync, rmSync, mkdirSync, writeFileSync, symlinkSync, lstatSync } from 'node:fs';
+import {copyTree} from './copy-tree.mjs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -34,6 +35,15 @@ try {
   assert.equal(spawnSync(process.execPath,['-e','process.exit(0)'],{timeout}).status,0);
   const temp=mkdtempSync(path.join(tmpdir(),'product-video-export-'));
   try {
+    const source=path.join(temp,'source'), linked=path.join(temp,'linked'), copied=path.join(temp,'copied');
+    mkdirSync(source); mkdirSync(linked);
+    writeFileSync(path.join(source,'中文 file.txt'),'字幕与素材','utf8');
+    symlinkSync(source,path.join(linked,'assets'),process.platform==='win32'?'junction':'dir');
+    copyTree(linked,copied);
+    assert.equal(readFileSync(path.join(copied,'assets','中文 file.txt'),'utf8'),'字幕与素材');
+    assert.equal(lstatSync(path.join(copied,'assets')).isSymbolicLink(),false);
+    symlinkSync(linked,path.join(source,'cycle'),process.platform==='win32'?'junction':'dir');
+    assert.throws(()=>copyTree(linked,path.join(temp,'cycle-copy')),/Circular link/);
     const movie=path.join(temp,'long.mp4');
     const encoded=spawnSync('ffmpeg',['-v','error','-f','lavfi','-i','color=size=160x90:rate=30','-f','lavfi','-i','anullsrc=r=8000:cl=mono','-t','330.9','-c:v','libx264','-preset','ultrafast','-c:a','aac',movie],{encoding:'utf8',timeout:120000});
     assert.equal(encoded.status,0,encoded.stderr);

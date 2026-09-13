@@ -48,14 +48,14 @@ def review(project):
     latest = Path(config['output']) / 'latest.json'
     if not latest.is_file():
         raise VideoError('尚无已验证成片，请先运行 render 或 build。')
-    saved = json.loads(latest.read_text())
+    saved = json.loads(latest.read_text(encoding="utf-8"))
     movie = Path(saved['movie'])
-    report = json.loads(Path(saved['report']).read_text())
+    report = json.loads(Path(saved['report']).read_text(encoding="utf-8"))
     if not movie.is_file() or file_hash(movie) != report.get('sha256'):
         raise VideoError('成片与校验记录不一致，请重新渲染或使用对应版本的记录。')
     frames = set()
     if saved.get('studio'):
-        timeline = json.loads(Path(saved['studio']).read_text())
+        timeline = json.loads(Path(saved['studio']).read_text(encoding="utf-8"))
         for track in timeline['tracks']:
             if track['id'] != 'shots':
                 continue
@@ -65,7 +65,7 @@ def review(project):
                 frames.update(shot['start'] + offset for offset in offsets)
     previews = movie.parent / 'preview/index.json'
     if previews.is_file():
-        for item in json.loads(previews.read_text()):
+        for item in json.loads(previews.read_text(encoding="utf-8")):
             if 'frame' in item:
                 frames.add(item['frame'])
             elif 'time' in item:

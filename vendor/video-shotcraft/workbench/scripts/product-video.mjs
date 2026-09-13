@@ -1,13 +1,15 @@
 import { verifyMedia } from './verify-media.mjs';
+import { copyTree } from './copy-tree.mjs';
 import { bundle } from '@remotion/bundler';
 import { getCompositions, renderMedia, renderStill, openBrowser } from '@remotion/renderer';
-import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const [action, requestFile] = process.argv.slice(2);
 const request = JSON.parse(readFileSync(requestFile, 'utf8'));
+console.log(`Product Video ${action}: preparing project assets.`);
 const inputProps = request.project ? { project: request.project, renderExact: true } : {};
 const publicDir = path.resolve(request.publicDir);
 mkdirSync(publicDir, { recursive: true });
@@ -19,22 +21,40 @@ const copies = [
 ];
 for (const [from, to] of copies) {
   const dest = path.join(publicDir, to);
-  if (!existsSync(dest)) cpSync(path.join(root, from), dest, { recursive: true, dereference: true });
+  if (!existsSync(dest)) {
+    console.log(`Preparing ${to}.`);
+    copyTree(path.join(root, from), dest);
+  }
 }
-const serveUrl = await bundle({
+console.log('Bundling Remotion compositions.');
+// Remotion preserves public symlinks while copying a bundle. Windows cannot
+// recreate those as file symlinks without privileges, even when the source is
+// a user-created directory junction. Give it a disposable real directory.
+const stagingRoot = process.platform === 'win32' ? path.join(root, '.render-public') : null;
+if (stagingRoot) mkdirSync(stagingRoot, {recursive:true});
+const staging = stagingRoot ? mkdtempSync(path.join(stagingRoot, 'bundle-')) : null;
+let serveUrl;
+try {
+if (staging) copyTree(publicDir, path.join(staging, 'public'));
+serveUrl = await bundle({
   entryPoint: path.join(root, 'src/remotion/index.ts'),
-  publicDir,
+  publicDir: staging ? path.join(staging, 'public') : publicDir,
   webpackOverride: config => ({ ...config, resolve: { ...config.resolve, symlinks: false,
     modules: [path.join(root, 'node_modules'), 'node_modules'],
     alias: { '@pv': path.join(root, 'src/product-video'), '@shotcraft-lib': path.join(root, '../assets/lib'), ...config.resolve?.alias, '@demos': path.join(root, 'demosrc'), '@proj': path.join(root, 'proj-stub') },
   } }),
   onProgress: p => { if (p === 100) console.log('Motion bundle ready.'); },
 });
-const chromiumOptions = { gl: process.platform === 'darwin' ? 'angle' : 'swangle' };
-const browser = await openBrowser('chrome', { browserExecutable: request.browserExecutable ?? null, chromiumOptions });
+} finally {
+  if (staging) rmSync(staging, {recursive:true, force:true});
+}
+const chromiumOptions = { gl: process.env.PRODUCT_VIDEO_GL ?? (process.platform === 'darwin' ? 'angle' : 'swangle') };
+console.log(`Starting render browser (${chromiumOptions.gl}).`);
+const browser = await openBrowser('chrome', { browserExecutable: request.browserExecutable ?? process.env.PRODUCT_VIDEO_BROWSER ?? null, chromiumOptions });
 try {
   const options = { serveUrl, inputProps, puppeteerInstance: browser, chromiumOptions, timeoutInMilliseconds: 90000 };
   const compositions = await getCompositions(serveUrl, options);
+  console.log(`Loaded ${compositions.length} Remotion compositions.`);
   if (action === 'catalog') {
     writeFileSync(request.output, JSON.stringify(compositions.map(({ id, width, height, fps, durationInFrames }) => ({ id, width, height, fps, durationInFrames })), null, 2));
   } else if (action === 'smoke') {

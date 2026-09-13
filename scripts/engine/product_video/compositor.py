@@ -19,7 +19,7 @@ def fit_rect(size, box):
 class Renderer:
     def __init__(self, config, chapters, narration_label='AI 配音'):
         self.config, self.chapters = config, chapters
-        self.narration_label = narration_label
+        self.narration_label = '字幕演示' if config.get('voice', {}).get('mode') == 'none' else narration_label
         self.v = config['video']
         self.w, self.h = self.v['width'], self.v['height']
         self.scale = self.w / 1920
@@ -308,7 +308,8 @@ class Renderer:
         chapter = self.chapters[ci]
         local_time = time_value - chapter['start']
         image = self.scene(ci, local_time)
-        duration = min(chapter.get('transition_duration', self.v['transition']), chapter['lead'])
+        duration = min(chapter.get('transition_duration', self.v['transition']),
+                       chapter['audio_duration'] if chapter.get('timing_mode') == 'explicit-duration' else chapter['lead'])
         kind = chapter.get('transition', self.v['transition_style'])
         if ci and duration > 0 and local_time < duration and not self.v['reduced_motion']:
             previous = self.chapters[ci - 1]

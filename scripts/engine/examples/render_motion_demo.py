@@ -22,7 +22,7 @@ def render_demo(destination, styles, width=1920, transitions=TRANSITIONS):
     destination = Path(destination).expanduser().resolve()
     # create() refuses a nonempty directory; a review never overwrites older output.
     project_path = create(destination)
-    original = json.loads(project_path.read_text())
+    original = json.loads(project_path.read_text(encoding="utf-8"))
     for style in styles:
         project = copy.deepcopy(original)
         project['product']['name'] = 'Product Video · 动效示例'

@@ -42,7 +42,7 @@ class PipelineTests(unittest.TestCase):
         })
 
     def latest(self):
-        return json.loads((self.root / 'output/latest.json').read_text())
+        return json.loads((self.root / 'output/latest.json').read_text(encoding="utf-8"))
 
     def test_cached_render_updates_latest_without_encoding_or_synthesis(self):
         with patch('product_video.pipeline.generate', side_effect=AssertionError('No API in regression test')):
@@ -69,7 +69,7 @@ class PipelineTests(unittest.TestCase):
             self.assertEqual(self.latest()['movie'], str(first / 'product-introduction.mp4'))
 
     def test_standalone_punctuation_renders_and_decodes(self):
-        metadata = json.loads(self.metadata.read_text())
+        metadata = json.loads(self.metadata.read_text(encoding="utf-8"))
         metadata['events'][0]['data']['words'] = [
             {'word': '测', 'startTime': .05, 'endTime': .2},
             {'word': '试', 'startTime': .2, 'endTime': .35},
@@ -77,8 +77,8 @@ class PipelineTests(unittest.TestCase):
         ]
         write_json(self.metadata, metadata)
         folder = build(self.config, allow_api=False)
-        self.assertEqual(json.loads((folder / 'verification.json').read_text())['full_decode'], 'passed')
-        cues = json.loads((folder / 'timeline.json').read_text())['chapters'][0]['cues']
+        self.assertEqual(json.loads((folder / 'verification.json').read_text(encoding="utf-8"))['full_decode'], 'passed')
+        cues = json.loads((folder / 'timeline.json').read_text(encoding="utf-8"))['chapters'][0]['cues']
         self.assertEqual([cue['text'] for cue in cues], ['测试。'])
 
     def test_text_only_and_mixed_content_render_with_the_same_narration_cache(self):
@@ -97,10 +97,10 @@ class PipelineTests(unittest.TestCase):
             second = build(load(self.root / 'copy.json'), allow_api=False)
         self.assertNotEqual(first, second)
         for folder in (first, second):
-            report = json.loads((folder / 'verification.json').read_text())
+            report = json.loads((folder / 'verification.json').read_text(encoding="utf-8"))
             self.assertEqual(report['full_decode'], 'passed')
             self.assertGreater(report['subtitle_cues'], 0)
-            self.assertEqual((folder / 'narration.txt').read_text(), '测试。')
-        first_report = json.loads((first / 'verification.json').read_text())
+            self.assertEqual((folder / 'narration.txt').read_text(encoding="utf-8"), '测试。')
+        first_report = json.loads((first / 'verification.json').read_text(encoding="utf-8"))
         self.assertNotIn(str(self.root / 'image.png'), first_report['assets'])
         self.assertEqual((file_hash(self.audio), self.audio.stat().st_mtime_ns), audio_state)

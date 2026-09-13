@@ -10,7 +10,7 @@
 
 Product Video 是用于 Codex 的产品视频制作 Skill。它根据项目资料与实际界面组织介绍内容，完成素材采集、镜头编排、配音和字幕合成，输出 MP4 及可编辑工程。
 
-适用于软件产品介绍、功能演示、操作教程和版本发布视频。支持导入已有文稿、截图与录屏，也可从指定网页或 macOS 应用采集界面。
+适用于软件产品介绍、功能演示、操作教程和版本发布视频。支持无配音纯字幕和按需配音，导入已有文稿、截图与录屏，也可从指定网页、Windows 目标窗口或 macOS 应用采集界面。Windows 窗口采集为只读截图；网页支持自动操作与录屏。
 
 ## 功能
 
@@ -48,7 +48,16 @@ Product Video 是用于 Codex 的产品视频制作 Skill。它根据项目资�
 
 ## 安装
 
-运行环境需要 Python 3.11+、Node.js 22+、npm、FFmpeg（含 ffprobe）及中文字体。目前已在 macOS 验证，Windows 与 Linux 尚未完成整体验证。
+运行环境需要 Python 3.11+、Node.js 22+、npm、FFmpeg（含 ffprobe）及中文字体。Windows 提供 PowerShell 安装/运行入口；具体支持范围、纯字幕配置及验收边界见 [Windows 说明](docs/windows.md)。Linux 尚未完成整体验证。
+
+Windows 在完整仓库目录运行，参数指定本机已有运行库：
+
+```powershell
+./scripts/setup.ps1 -Python 'D:/runtimes/python/python.exe' -Node 'D:/runtimes/node/node.exe' -FfmpegDirectory 'D:/tools/ffmpeg/bin'
+./scripts/run.ps1 render 'D:/视频项目/产品 demo/project.json'
+```
+
+macOS：
 
 ```sh
 git clone https://github.com/Lincb522/product-video.git ~/.codex/skills/product-video
@@ -57,7 +66,7 @@ sh ~/.codex/skills/product-video/scripts/setup.sh
 
 安装脚本配置 Python 依赖、镜头工作台及浏览器运行环境。也可下载 [完整安装包](https://github.com/Lincb522/product-video/releases)，将解压后的 `product-video` 目录放入 Codex 的 `skills` 目录，再运行 `scripts/setup.sh`。安装目录已存在时，应先保留其中的自定义修改。
 
-配音使用火山引擎 TTS，需要可用的账号与额度。首次生成配音时会打开本机配置页，后续自动沿用已保存的设置。音色授权以账号实际开通情况为准。
+纯字幕项目设置 `voice: {"mode":"none"}` 与每章 `duration`，不需要账号或密钥，沿用完整 Remotion 制作与工作台导出流程。需要配音时使用火山引擎 TTS，需要可用的账号与额度；首次生成配音会打开本机配置页。音色授权以账号实际开通情况为准。
 
 ## 使用
 
@@ -84,7 +93,7 @@ sh ~/.codex/skills/product-video/scripts/setup.sh
 
 成片采用 H.264 / AAC 编码，封装为 MP4，并附字幕、旁白稿和可编辑工程。默认规格为 1920×1080、30 fps；当前支持 16:9 画幅和 24–60 fps。
 
-中文、英文字幕根据配音时间戳生成，提供 SRT 文件。其他语言可使用已对齐的字幕，或关闭字幕。工程保留镜头、素材和分章音频。
+配音项目的中文、英文字幕根据语音时间戳生成。纯字幕项目使用明确的章内字幕时间，或按文稿分配显示时间，不声称语音对齐。两种模式均提供 SRT 和可编辑字幕轨；无配音工程不生成分章旁白。
 
 ## 工作原理
 
@@ -121,8 +130,9 @@ flowchart TB
 
 | 文档 | 内容 |
 | --- | --- |
+| [Windows 与纯字幕](docs/windows.md) | 安装、路径、无配音制作、只读窗口采集及边界 |
 | [命令与配置](scripts/engine/README.md) | 项目参数、音色选择、字幕和导出 |
-| [界面采集](references/capture.md) | 网页与 macOS 界面采集 |
+| [界面采集](references/capture.md) | 网页、Windows 目标窗口与 macOS 界面采集 |
 | [图文排版](references/editorial.md) | 总览、卡片、并排与对照布局 |
 | [镜头库与工作台](references/shotcraft.md) | 镜头选择、素材绑定与时间轴编辑 |
 | [三维场景](references/three-dimensional.md) | 设备模型、灯光、材质与录屏 |

@@ -22,7 +22,7 @@ from render_motion_demo import export_silent
 
 def compare(destination, before=None, after=None, width=1280):
     destination = Path(destination).expanduser().resolve()
-    raw = json.loads(create(destination).read_text())
+    raw = json.loads(create(destination).read_text(encoding="utf-8"))
     if before and after:
         for path, name in [(before, 'dark-0.png'), (after, 'dark-1.png')]:
             with Image.open(path) as im:

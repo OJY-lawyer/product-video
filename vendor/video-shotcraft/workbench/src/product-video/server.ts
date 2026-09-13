@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
-import { cpSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { copyTree } from '../../scripts/copy-tree.mjs';
 import path from 'node:path';
 import type { Plugin } from 'vite';
 
@@ -22,8 +23,8 @@ export function productVideoPlugin(): Plugin {
         try {
           const sourceText = readFileSync(source, 'utf8');
           const config = JSON.parse(sourceText);
-          const voices = JSON.parse(readFileSync(path.resolve('../../../scripts/engine/product_video/data/voices.json'), 'utf8')).voices.map((v: { id: string; names: string[] }) => ({ id: v.id, names: v.names }));
-          send(200, { revision: revisionOf(sourceText), name: config.product.name, voice: config.voice ?? {}, voices, chapters: config.chapters.map((c: { id: string; title: string; narration: string }) => ({ id: c.id, title: c.title, narration: c.narration })), project: JSON.parse(readFileSync(path.join(studio, 'project.json'), 'utf8')) });
+          const voices = config.voice?.mode === 'none' ? [] : JSON.parse(readFileSync(path.resolve('../../../scripts/engine/product_video/data/voices.json'), 'utf8')).voices.map((v: { id: string; names: string[] }) => ({ id: v.id, names: v.names }));
+          send(200, { revision: revisionOf(sourceText), name: config.product.name, voice: config.voice ?? {}, voices, chapters: config.chapters.map((c: { id: string; title: string; narration: string; duration?: number }) => ({ id: c.id, title: c.title, narration: c.narration, duration: c.duration })), project: JSON.parse(readFileSync(path.join(studio, 'project.json'), 'utf8')) });
         } catch { send(500, { error: '无法读取当前配音项目。' }); }
         return;
       }
@@ -39,25 +40,32 @@ export function productVideoPlugin(): Plugin {
           const sourceText = readFileSync(source, 'utf8');
           const config = JSON.parse(sourceText);
           const originalConfig = JSON.stringify(config);
+          const silent = config.voice?.mode === 'none';
           if (update.revision !== revisionOf(sourceText)) { send(409, { error: '项目已在其他位置修改，请刷新工作台后再生成。' }); return; }
-          if (typeof update.speaker !== 'string' || !update.speaker.trim() || !Array.isArray(update.chapters) || update.chapters.length !== config.chapters.length) throw new Error('请填写音色和每章旁白。');
-          config.chapters = config.chapters.map((chapter: { id: string; narration: string; captions?: unknown }, i: number) => {
+          if ((!silent && (typeof update.speaker !== 'string' || !update.speaker.trim())) || !Array.isArray(update.chapters) || update.chapters.length !== config.chapters.length) throw new Error('请填写每章文稿；配音项目还需选择音色。');
+          config.chapters = config.chapters.map((chapter: { id: string; narration: string; duration?: number; captions?: {end:number}[] }, i: number) => {
             const next = update.chapters[i];
             if (next.id !== chapter.id || typeof next.narration !== 'string' || !next.narration.trim() || next.narration.length > 2000) throw new Error('章节不匹配，或旁白超过 2000 字。');
             if (next.narration !== chapter.narration) delete chapter.captions;
-            return { ...chapter, narration: next.narration };
+            if (silent) {
+              if (typeof next.duration !== 'number' || !Number.isFinite(next.duration) || next.duration < .25 || next.duration > 3600) throw new Error('每章时长须为 0.25–3600 秒。');
+              if (chapter.captions?.some(cue => cue.end > next.duration)) throw new Error('自定义字幕超过新的章节时长，请先调整字幕。');
+            }
+            return { ...chapter, narration: next.narration, ...(silent ? {duration:next.duration} : {}) };
           });
-          const changedVoice = config.voice?.speaker !== update.speaker.trim();
-          config.voice = { ...config.voice, speaker: update.speaker.trim() };
-          // Resolve model/transport with the existing voice selector before generation.
-          if (changedVoice) { delete config.voice.resource_id; delete config.voice.transport; }
+          if (!silent) {
+            const changedVoice = config.voice?.speaker !== update.speaker.trim();
+            config.voice = { ...config.voice, speaker: update.speaker.trim() };
+            // Resolve model/transport with the existing voice selector before generation.
+            if (changedVoice) { delete config.voice.resource_id; delete config.voice.transport; }
+          }
           config.schema_version = 2;
           config.video = { ...config.video, renderer: 'remotion' };
           const pending = `${source}.pending-${process.pid}-${++serial}`;
           if (JSON.stringify(config) !== originalConfig) { writeFileSync(pending, JSON.stringify(config, null, 2)); renameSync(pending, source); }
-          job = { status: 'running', message: '正在生成缺失的配音并对齐镜头…', revision: revisionOf(readFileSync(source, 'utf8')) };
+          job = { status: 'running', message: silent ? '正在按章节时长更新字幕与镜头…' : '正在生成缺失的配音并对齐镜头…', revision: revisionOf(readFileSync(source, 'utf8')) };
           const current = job;
-          const child = spawn(python, ['-m', 'product_video', 'prepare-motion', source, '--generate-voice'], { cwd: path.dirname(source) });
+          const child = spawn(python, ['-m', 'product_video', 'prepare-motion', source, ...(silent ? [] : ['--generate-voice'])], { cwd: path.dirname(source), windowsHide:true });
           let tail = '';
           const record = (data: Buffer) => { tail = (tail + data.toString()).slice(-3000); const lines = tail.trim().split('\n'); current.message = lines[lines.length - 1] || current.message; };
           child.stdout.on('data', record); child.stderr.on('data', record);
@@ -71,10 +79,10 @@ export function productVideoPlugin(): Plugin {
             try {
               const output = path.resolve(path.dirname(source), config.output ?? 'output');
               const generated = JSON.parse(readFileSync(path.join(output, 'studio.json'), 'utf8'));
-              if (path.resolve(generated.directory) !== path.resolve(studio)) cpSync(path.join(generated.directory, 'public'), path.join(studio, 'public'), { recursive: true });
+              if (path.resolve(generated.directory) !== path.resolve(studio)) copyTree(path.join(generated.directory, 'public'), path.join(studio, 'public'));
               const project = JSON.parse(readFileSync(generated.project, 'utf8'));
               writeFileSync(path.join(studio, 'project.json'), JSON.stringify(project, null, 2));
-              current.revision = revisionOf(readFileSync(source, 'utf8')); current.project = project; current.status = 'done'; current.message = '旁白、字幕和镜头时间轴已更新。';
+              current.revision = revisionOf(readFileSync(source, 'utf8')); current.project = project; current.status = 'done'; current.message = silent ? '字幕和镜头时间轴已更新；未调用配音服务。' : '旁白、字幕和镜头时间轴已更新。';
             } catch (error) { current.status = 'error'; current.message = `配音已完成，时间轴加载失败：${String(error)}`; }
           });
           send(202, { status: 'running' });

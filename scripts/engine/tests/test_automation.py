@@ -3,6 +3,7 @@ import copy
 import http.client
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import os
 from pathlib import Path
 import re
 import tempfile
@@ -48,7 +49,12 @@ class SetupTests(unittest.TestCase):
             status, body = self.request(s, 'POST', '/save', {'csrf': s.csrf, 'key': fake})
             self.assertEqual(status, 200); self.assertNotIn(fake, body); self.assertTrue(s.saved)
             self.assertEqual(credentials.load_key(s.credential_file), fake)
-            self.assertEqual(s.credential_file.stat().st_mode & 0o777, 0o600)
+            if os.name == 'nt':
+                stored = s.credential_file.read_text(encoding='utf-8')
+                self.assertNotIn(fake, stored)
+                self.assertEqual(json.loads(stored)['storage'], 'windows-dpapi-user-v1')
+            else:
+                self.assertEqual(s.credential_file.stat().st_mode & 0o777, 0o600)
             status, _ = self.request(s, 'POST', '/save', {'csrf': s.csrf, 'key': 'another-synthetic-key'})
             self.assertEqual(status, 409)
 
@@ -82,7 +88,7 @@ class SetupTests(unittest.TestCase):
     def test_no_javascript_form_uses_post_not_url(self):
         from playwright.sync_api import sync_playwright
         with tempfile.TemporaryDirectory() as d, serving(SetupServer(Path(d)/'credentials.json')) as server, sync_playwright() as pw:
-            browser=pw.chromium.launch(headless=True)
+            browser=pw.chromium.launch(headless=True, executable_path=os.environ.get('PRODUCT_VIDEO_BROWSER'))
             try:
                 page=browser.new_page(java_script_enabled=False)
                 page.goto(server.origin)
@@ -133,13 +139,13 @@ class CaptureTests(unittest.TestCase):
                 plan['target']['viewport']['width'] = width
                 plan['shots'][0]['points'] = {'theme': {'role': 'button', 'name': 'Dark theme'}}
                 write_json(folder / 'capture.json', plan)
-                raw = json.loads((folder / 'project.json').read_text())
+                raw = json.loads((folder / 'project.json').read_text(encoding="utf-8"))
                 raw['chapters'][0]['steps'][1]['interaction'] = {'kind': 'click', 'to': 'capture:before:theme'}
                 write_json(folder / 'project.json', raw)
                 compiled = capture_project(folder / 'project.json')
-                project = json.loads(compiled.read_text())
+                project = json.loads(compiled.read_text(encoding="utf-8"))
                 point = project['chapters'][0]['steps'][1]['interaction']['to']
-                manifest = json.loads((compiled.parent / 'manifest.json').read_text())
+                manifest = json.loads((compiled.parent / 'manifest.json').read_text(encoding="utf-8"))
                 self.assertEqual(point, manifest['shots'][0]['points']['theme'])
                 self.assertEqual(manifest['shots'][0]['size'], [width * 2, 1200])
                 with web_session(plan['target']) as page:
@@ -150,7 +156,7 @@ class CaptureTests(unittest.TestCase):
     def test_unknown_points_stop_before_browser_launch(self):
         with tempfile.TemporaryDirectory() as d:
             folder = Path(d); self.project(folder, 'http://localhost:9000')
-            raw = json.loads((folder / 'project.json').read_text())
+            raw = json.loads((folder / 'project.json').read_text(encoding="utf-8"))
             raw['chapters'][0]['steps'][1]['cursor'] = 'capture:before:missing'
             write_json(folder / 'project.json', raw)
             with patch('product_video.capture.web_session', side_effect=AssertionError('No browser expected')):
@@ -161,7 +167,7 @@ class CaptureTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d, serving(ThreadingHTTPServer(('127.0.0.1', 0), FixtureHandler)) as server:
             folder = Path(d); self.project(folder, f'http://127.0.0.1:{server.server_port}')
             Image.new('RGB', (960, 600), 'blue').save(folder / 'existing.png')
-            raw = json.loads((folder / 'project.json').read_text())
+            raw = json.loads((folder / 'project.json').read_text(encoding="utf-8"))
             raw['chapters'][0]['steps'][1].update(images=['existing.png'], cursor=[.2, .3], click=True)
             write_json(folder / 'project.json', raw)
             compiled = capture_project(folder / 'project.json')
@@ -317,21 +323,21 @@ class CaptureTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d, serving(ThreadingHTTPServer(('127.0.0.1',0),FixtureHandler)) as server:
             folder=Path(d);self.project(folder,f'http://127.0.0.1:{server.server_port}')
             compiled=capture_project(folder/'project.json')
-            data=json.loads(compiled.read_text());self.assertNotIn('capture',data)
+            data=json.loads(compiled.read_text(encoding="utf-8"));self.assertNotIn('capture',data)
             self.assertEqual(data['output'],str((folder/'output').resolve()))
             files=[Path(s['images'][0]) for s in data['chapters'][0]['steps']]
             self.assertNotEqual(file_hash(files[0]),file_hash(files[1]))
             with Image.open(files[0]) as im:
                 self.assertEqual(im.size,(1920,1200));self.assertEqual(im.convert('RGB').getpixel((250,450)),(255,0,255))
             with Image.open(files[1]) as im: self.assertEqual(im.convert('RGB').getpixel((1800,1100)),(23,44,67))
-            report=json.loads((compiled.parent/'manifest.json').read_text());self.assertEqual(len(report['shots']),2)
+            report=json.loads((compiled.parent/'manifest.json').read_text(encoding="utf-8"));self.assertEqual(len(report['shots']),2)
             self.assertEqual(report['shots'][0]['sha256'],file_hash(files[0]))
-            self.assertIn('capture:', (folder/'project.json').read_text())
+            self.assertIn('capture:', (folder/'project.json').read_text(encoding="utf-8"))
 
     def test_preflight_rejects_unknown_refs_without_browser(self):
         with tempfile.TemporaryDirectory() as d:
             folder=Path(d);self.project(folder,'http://localhost:9000')
-            p=json.loads((folder/'project.json').read_text());p['chapters'][0]['steps'][0]['images']=['capture:absent'];write_json(folder/'project.json',p)
+            p=json.loads((folder/'project.json').read_text(encoding="utf-8"));p['chapters'][0]['steps'][0]['images']=['capture:absent'];write_json(folder/'project.json',p)
             with patch('product_video.capture.web_session') as browser, self.assertRaises(VideoError): capture_project(folder/'project.json')
             browser.assert_not_called()
 
@@ -360,7 +366,7 @@ class CaptureTests(unittest.TestCase):
                 if count==2: raise VideoError('failure fixture')
                 Image.new('RGB',(120,120)).save(destination)
             with patch('product_video.capture.web_session',browser), patch('product_video.capture.capture_web',shot), self.assertRaises(VideoError): capture_project(p/'project.json')
-            self.assertEqual(json.loads((root/'latest.json').read_text()),{'project':'previous'})
+            self.assertEqual(json.loads((root/'latest.json').read_text(encoding="utf-8")),{'project':'previous'})
             self.assertEqual(list((root/'runs').iterdir()),[])
 
     def test_native_screenshot_uses_window_id_never_desktop(self):

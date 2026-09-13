@@ -1,5 +1,7 @@
 # 产品介绍视频生成器
 
+Windows 使用仓库根目录的 `scripts/run.ps1`，安装用 `scripts/setup.ps1`。下面的 `./run.sh` 命令参数相同。无配音纯字幕为正式模式：`voice: {"mode":"none"}`，每章 `duration` 为总秒数；所有生成入口和工作台均支持，不访问凭据或 TTS。完整配置与能力边界见 [Windows 与纯字幕](../../docs/windows.md)。
+
 2.1 新项目默认使用 Remotion 镜头编排，支持完整 Shotcraft 库与可编辑工作台；本文保留原有采集、语音和截图项目字段。新镜头字段、音频轨和工作台见 [镜头与语音集成](../../references/shotcraft.md)。`schema_version: 1` 默认沿用原合成器，`schema_version: 2` 默认使用 Remotion。
 
 ```sh

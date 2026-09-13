@@ -8,6 +8,7 @@ from pathlib import Path
 import re
 import tempfile
 import sys
+import os
 from urllib.parse import urlsplit
 
 from PIL import Image, ImageOps
@@ -31,7 +32,9 @@ class Studio3D:
             for path in [data / 'studio3d.html', data / 'studio3d.js', *(data / 'three').glob('*.js')]:
                 self.routes['/' + path.relative_to(data).as_posix()] = path
             pw = self.stack.enter_context(sync_playwright())
-            browser = pw.chromium.launch(headless=True, args=['--use-angle=metal'] if sys.platform == 'darwin' else [])
+            angle = os.environ.get('PRODUCT_VIDEO_3D_ANGLE', 'metal' if sys.platform == 'darwin' else 'swiftshader')
+            browser = pw.chromium.launch(headless=True, executable_path=os.environ.get('PRODUCT_VIDEO_BROWSER'),
+                args=[f'--use-angle={angle}', '--enable-unsafe-swiftshader'] if angle == 'swiftshader' else [f'--use-angle={angle}'])
             self.stack.callback(browser.close)
             self.page = browser.new_page(viewport={'width': video['width'], 'height': video['height']}, device_scale_factor=1)
             self.page.route('**/*', self._route)
@@ -40,7 +43,7 @@ class Studio3D:
             self.info = self.page.evaluate('([w,h]) => studio.init(w,h)', [video['width'], video['height']])
         except Error:
             self.close()
-            raise VideoError('三维引擎无法启动。请运行 scripts/setup.sh 安装专用 Chromium，并确认 WebGL 2 可用。') from None
+            raise VideoError('三维引擎无法启动。请运行 scripts/setup.ps1（Windows）或 setup.sh 安装专用 Chromium，并确认 WebGL 2 可用。') from None
         except BaseException:
             self.close()
             raise

@@ -147,11 +147,11 @@ class Scene3DTests(unittest.TestCase):
                     'events': [{'event': 364, 'data': {'words': [{'word': '测试。', 'startTime': .05, 'endTime': .9}]}}]})
         with patch('product_video.pipeline.generate', side_effect=AssertionError('No API')):
             rendered = build(config, allow_api=False)
-        report = json.loads((rendered / 'verification.json').read_text())
+        report = json.loads((rendered / 'verification.json').read_text(encoding="utf-8"))
         self.assertEqual(report['full_decode'], 'passed')
         self.assertEqual(report['renderer_3d']['revision'], '186')
         self.assertIn(str(self.root / 'red.png'), report['assets'])
-        self.assertIn('middle', {p['phase'] for p in json.loads((rendered / 'preview/index.json').read_text())})
+        self.assertIn('middle', {p['phase'] for p in json.loads((rendered / 'preview/index.json').read_text(encoding="utf-8"))})
 
     def test_reduced_motion_freezes_3d_pose(self):
         config = copy.deepcopy(self.config); config['video']['reduced_motion'] = True

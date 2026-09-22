@@ -5,7 +5,7 @@ import platform
 import shutil
 import subprocess
 
-from .common import VideoError, file_hash
+from .common import VideoError, cache_directory, file_record
 
 
 def native_run(argv, timeout=30):
@@ -26,7 +26,7 @@ class NativeCapture:
         if not shutil.which('swiftc'):
             raise VideoError('原生窗口采集缺少 Swift 编译工具，请安装 Xcode Command Line Tools；未修改系统。')
         source = Path(__file__).parent / 'data' / 'capture_macos.swift'
-        self.helper = Path(root) / 'helpers' / file_hash(source)[:16] / 'capture-macos'
+        self.helper = cache_directory(Path(root) / 'helpers', {'source': file_record(source)}) / 'capture-macos'
         self.helper.parent.mkdir(parents=True, exist_ok=True)
         if not self.helper.exists():
             pending = self.helper.with_suffix('.pending')

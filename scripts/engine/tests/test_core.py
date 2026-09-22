@@ -13,7 +13,7 @@ from unittest.mock import patch
 from PIL import Image
 
 from product_video import credentials, voices
-from product_video.common import VideoError, file_hash, write_json
+from product_video.common import VideoError, file_record, write_json
 from product_video.config import load
 from product_video.demo import create
 from product_video.http_tts import StreamResult
@@ -212,7 +212,7 @@ class LocalTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             folder = Path(temp)
             (folder / 'voice.mp3').write_bytes(b'mock')
-            write_json(folder / 'metadata.json', {'sha256': file_hash(folder / 'voice.mp3'), 'duration': 1})
+            write_json(folder / 'metadata.json', {'file': file_record(folder / 'voice.mp3'), 'duration': 1})
             self.assertEqual(cached_audio(folder)['duration'], 1)
             (folder / 'voice.mp3').write_bytes(b'changed')
             with self.assertRaises(VideoError):

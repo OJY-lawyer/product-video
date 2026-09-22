@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { copyTree } from '../../scripts/copy-tree.mjs';
@@ -7,7 +7,15 @@ import type { Plugin } from 'vite';
 
 type Job = { status: 'running' | 'done' | 'error'; message: string; project?: unknown; revision?: string };
 export function productVideoPlugin(): Plugin {
-  const revisionOf = (value: string) => createHash('sha256').update(value).digest('hex');
+  // Tokens are scoped to this server instance. Compare source text directly so
+  // external edits (including formatting changes) invalidate an earlier save.
+  const session = randomUUID();
+  let sourceRevision: { text: string; token: string } | null = null;
+  let revisionSerial = 0;
+  const revisionOf = (text: string) => {
+    if (!sourceRevision || sourceRevision.text !== text) sourceRevision = { text, token: `${session}:${++revisionSerial}` };
+    return sourceRevision.token;
+  };
   let job: Job | null = null;
   let serial = 0;
   return { name: 'product-video-voice', configureServer(server) {

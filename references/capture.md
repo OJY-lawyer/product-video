@@ -16,7 +16,7 @@
 
 ## 视频项目引用
 
-在原视频项目增加 `"capture": "capture.json"`，把需要采集的图片写成 `"images": ["capture:overview"]`。采集器不改原项目。完成后生成 `.captures/runs/<本次编号>/project.json` 和 `manifest.json`，图片含采集时间、尺寸、SHA-256；`.captures/latest.json` 仅在全部成功后更新。
+在原视频项目增加 `"capture": "capture.json"`，把需要采集的图片写成 `"images": ["capture:overview"]`。采集器不改原项目。完成后生成 `.captures/runs/<本次编号>/project.json` 和 `manifest.json`，记录采集时间、尺寸和实际画面；`.captures/latest.json` 仅在全部成功后更新。
 
 ```sh
 "$RUN" capture /path/to/project.json  # 仅自动采集，不调用配音

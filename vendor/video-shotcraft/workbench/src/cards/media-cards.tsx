@@ -1,6 +1,7 @@
 import React from "react";
 import { AbsoluteFill, Audio, Img, OffthreadVideo, staticFile } from "remotion";
 import type { CardDef } from "./types";
+import { Highlights, type Highlight } from "./Highlights";
 
 // —— 媒体卡：视频 / 图片 / 音频文件直接上轨（成片工程 public/ 与仓库音效库都走它们）——
 // 视频/音频卡 kind:"video"/"audio"：裁入=trimBefore、变速=playbackRate（不能包 Freeze，会掐死原生播放）
@@ -12,7 +13,14 @@ const VideoClip: React.FC<{
   volume?: number;
   inOffset?: number;
   speed?: number;
-}> = ({ file = "", fit = "contain", muted = false, volume = 1, inOffset = 0, speed = 1 }) => {
+  sourceWidth?: number;
+  sourceHeight?: number;
+  highlights?: Highlight[];
+  accent?: string;
+  foreground?: string;
+  surface?: string;
+  reducedMotion?: boolean;
+}> = ({ file = "", fit = "contain", muted = false, volume = 1, inOffset = 0, speed = 1, ...annotations }) => {
   if (!file) return null;
   return (
     <AbsoluteFill style={{ background: "#000" }}>
@@ -24,6 +32,7 @@ const VideoClip: React.FC<{
         volume={volume}
         style={{ width: "100%", height: "100%", objectFit: fit as React.CSSProperties["objectFit"] }}
       />
+      <Highlights {...annotations} fit={fit} width={1920} height={1080} />
     </AbsoluteFill>
   );
 };
@@ -35,6 +44,8 @@ export const videoClipCard: CardDef = {
   kind: "video",
   timing: "realtime",
   durationInFrames: 150,
+  width: 1920,
+  height: 1080,
   accent: "#30d158",
   component: VideoClip as React.ComponentType<Record<string, unknown>>,
   schema: [

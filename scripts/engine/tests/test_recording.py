@@ -6,7 +6,7 @@ import tempfile
 import threading
 import unittest
 
-from product_video.common import VideoError, file_hash, run, write_json
+from product_video.common import VideoError, file_record, run, write_json
 from product_video.recording import record_web
 
 
@@ -37,7 +37,7 @@ class RecordingTests(unittest.TestCase):
                 server.shutdown(); server.server_close(); thread.join(timeout=2)
             report = json.loads(movie.with_suffix('.recording.json').read_text(encoding="utf-8"))
             self.assertEqual(report['full_decode'], 'passed')
-            self.assertEqual(report['sha256'], file_hash(movie))
+            self.assertEqual(report['file'], file_record(movie))
             for at, channel in [(.2, 0), (report['duration'] - .2, 2)]:
                 pixel = run(['ffmpeg', '-v', 'error', '-ss', str(at), '-i', movie, '-frames:v', '1',
                              '-vf', 'crop=100:100:200:100,scale=1:1', '-pix_fmt', 'rgb24', '-f', 'rawvideo', 'pipe:1'])

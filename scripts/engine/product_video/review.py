@@ -4,7 +4,7 @@ import math
 from pathlib import Path
 import tempfile
 
-from .common import VideoError, file_hash, probe, run, write_json
+from .common import VideoError, file_record, probe, run, write_json
 
 
 def selection(frames):
@@ -51,9 +51,14 @@ def review(project):
     saved = json.loads(latest.read_text(encoding="utf-8"))
     movie = Path(saved['movie'])
     report = json.loads(Path(saved['report']).read_text(encoding="utf-8"))
-    if not movie.is_file() or file_hash(movie) != report.get('sha256'):
+    if not movie.is_file() or (report.get('file') is not None and file_record(movie) != report['file']):
         raise VideoError('成片与校验记录不一致，请重新渲染或使用对应版本的记录。')
+    from .pipeline import verify
+    verify(movie, config, report['duration'])
     frames = set()
+    points = movie.parent / 'review-points.json'
+    if points.is_file():
+        frames.update(point['frame'] for point in json.loads(points.read_text(encoding='utf-8')))
     if saved.get('studio'):
         timeline = json.loads(Path(saved['studio']).read_text(encoding="utf-8"))
         for track in timeline['tracks']:
@@ -74,7 +79,7 @@ def review(project):
         raise VideoError('未找到镜头复核时间，请先对该项目运行 preview。')
     destination = movie.parent / 'review'
     index = extract_frames(movie, frames, destination)
-    write_json(destination / 'index.json', {'movie_sha256': report['sha256'], 'frames': index,
+    write_json(destination / 'index.json', {'movie': str(movie), 'file': file_record(movie), 'frames': index,
         'visual_review': 'unverified', 'listening_review': 'unverified'})
     print(f'已从成片提取 {len(index)} 张复核帧：{destination}')
     return destination

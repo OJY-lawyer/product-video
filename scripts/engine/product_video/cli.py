@@ -227,6 +227,9 @@ def execute(args):
         print(f"配置与素材检查通过：{config['product']['name']}，{len(config['chapters'])} 章。")
         if config['voice'].get('mode') == 'none':
             print('无配音：按章节 duration 编排，字幕为显示时间轴。未调用 API。')
+            from .pipeline import prepare
+            from .pacing import write_review
+            write_review(config, prepare(config, allow_api=False), config['output'])
         else:
             print(f"配音：{config['voice']['speaker']}；接口：{voices.transport(config['voice'])}。未调用 API。")
     elif args.command == "voice":

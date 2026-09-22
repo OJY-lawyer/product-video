@@ -12,7 +12,7 @@ import uuid
 
 from PIL import Image
 
-from .common import VideoError, file_hash, write_json
+from .common import VideoError, file_record, write_json
 from .config import known, load, number, text
 from .pipeline import project_lock
 
@@ -403,8 +403,8 @@ def capture_project(project):
             compiled = run / 'project.json'; write_json(compiled, resolved)
             load(compiled)
             source = origin(target['url']) if target['provider'] == 'web' else target['bundle_id'] if target['provider'] == 'macos' else native.inspect()['window']
-            report = {'source': source, 'provider': target['provider'], 'plan_sha256': file_hash(plan_path),
-                      'project_sha256': file_hash(project), 'shots': records, 'project': str(compiled)}
+            report = {'source': source, 'provider': target['provider'], 'plan_file': file_record(plan_path),
+                      'project_file': file_record(project), 'shots': records, 'project': str(compiled)}
             write_json(run / 'manifest.json', report)
             write_json(root / 'latest.json', {'manifest': str(run / 'manifest.json'), 'project': str(compiled)})
         except BaseException:
@@ -424,7 +424,7 @@ def capture_one(shot, run, records, action):
         if im.width < 100 or im.height < 100:
             raise VideoError('采集画面过小，请检查目标窗口是否可见。')
         size = [im.width, im.height]
-    records.append({'id': shot['id'], 'file': dest.name, 'size': size, 'sha256': file_hash(dest),
+    records.append({'id': shot['id'], 'file': dest.name, 'size': size, 'file_state': file_record(dest),
                     'captured_at': datetime.now(timezone.utc).isoformat()})
     if shot.get('points'):
         records[-1]['points'] = points
@@ -457,6 +457,11 @@ def resolve_images(raw, base, captured):
                 else:
                     images.append(str((base / Path(value).expanduser()).resolve()))
             step['images'] = images
+            if 'recording' in step:
+                source = step['recording'].get('source', '')
+                if source.startswith('capture:'):
+                    raise VideoError('recording 需要已有视频文件，capture: 只代表静态截图。')
+                step['recording']['source'] = str((base / Path(source).expanduser()).resolve())
             for key, value in step.get('shotcraft', {}).get('media', {}).items():
                 if value.startswith('capture:'):
                     sid = value.removeprefix('capture:')

@@ -266,3 +266,27 @@ Duration-driven cards now use the actual clip duration instead of freezing at th
 - `workbench/src/preview/Composition.tsx`
 - `workbench/src/timeline/ClipView.tsx`
 - `workbench/src/remotion/zodFromCard.ts`
+
+## Product Video 2.1 fork additions: recorded 2D media and local saves
+
+The Product Video fork adds a normalized, object-fit-aware highlight overlay for
+recorded 2D media, with optional safe labels and reduced-motion behavior. The
+overlay is an integration feature for Product Video media cards; it adds no
+upstream motion-catalogue entry or third-party asset.
+
+The following files contain the fork's additions or modifications:
+
+- `workbench/src/cards/Highlights.tsx` adds the highlight geometry, timing,
+  label placement, and reduced-motion behavior.
+- `workbench/src/cards/media-cards.tsx` passes highlight annotations through
+  the video media card.
+- `workbench/src/product-video/server.ts` adds server-session revision tokens
+  and direct source-text comparison so stale concurrent local saves are
+  rejected before a local job starts.
+- `workbench/scripts/test-product-video.mjs` tests media fitting, highlight
+  timing and placement, safe labels, and concurrent local-save handling in an
+  isolated test process.
+
+These are Product Video fork integration changes. The upstream video-shotcraft
+source, assets, attribution, and Apache-2.0 license remain included and
+unchanged in their applicable locations.

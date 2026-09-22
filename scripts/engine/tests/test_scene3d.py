@@ -8,7 +8,7 @@ from unittest.mock import patch
 from PIL import Image, ImageChops
 
 from product_video.capture import resolve_images
-from product_video.common import VideoError, audio_duration, file_hash, run, write_json
+from product_video.common import VideoError, audio_duration, file_record, run, write_json
 from product_video.config import load
 from product_video.pipeline import build
 from product_video.render import Renderer
@@ -139,11 +139,11 @@ class Scene3DTests(unittest.TestCase):
         write_json(self.root / 'mixed.json', raw)
         config = load(self.root / 'mixed.json')
         folder = cache_location(self.root / 'output', config['chapters'][0], config['voice'])
-        folder.mkdir(parents=True)
+        folder.mkdir(parents=True, exist_ok=True)
         audio = folder / 'voice.mp3'
         audio.write_bytes(run(['ffmpeg', '-v', 'error', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=1.2',
                                '-c:a', 'libmp3lame', '-f', 'mp3', 'pipe:1']))
-        write_json(folder / 'metadata.json', {'duration': audio_duration(audio), 'sha256': file_hash(audio),
+        write_json(folder / 'metadata.json', {'duration': audio_duration(audio), 'file': file_record(audio),
                     'events': [{'event': 364, 'data': {'words': [{'word': '测试。', 'startTime': .05, 'endTime': .9}]}}]})
         with patch('product_video.pipeline.generate', side_effect=AssertionError('No API')):
             rendered = build(config, allow_api=False)

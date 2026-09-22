@@ -94,7 +94,7 @@ class EditorialTests(unittest.TestCase):
             out.setparams((1, 2, 8000, 0, 'NONE', 'not compressed'))
             out.writeframes(b'\0' * 16000 * 20)
         chapter = config['chapters'][0] | {'start': 0, 'end': 20.5, 'lead': .25, 'audio_duration': 20,
-            'audio': str(audio), 'audio_sha256': 'fixture', 'cues': [{'start': .25, 'end': 9, 'text': '项目'}, {'start': 9, 'end': 20.25, 'text': '配音'}]}
+            'audio': str(audio), 'audio_record': 'fixture', 'cues': [{'start': .25, 'end': 9, 'text': '项目'}, {'start': 9, 'end': 20.25, 'text': '配音'}]}
         def plate(*args):
             self.fail('Editorial content must render directly on the shared timeline.')
         result = timeline(config, [chapter], self.root/'public', plate)

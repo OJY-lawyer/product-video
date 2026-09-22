@@ -76,7 +76,7 @@ class ShotcraftTests(unittest.TestCase):
     def test_voice_boundaries_keep_shots_and_captions_on_shared_frame_clock(self):
         config = self.config()
         chapter = config['chapters'][0] | {'start': 0, 'end': 4.5, 'lead': .25, 'audio_duration': 4,
-            'audio': str(self.voice), 'audio_sha256': 'cached', 'cues': [{'start': .25, 'end': 2.11, 'text': 'One'}, {'start': 2.11, 'end': 4.25, 'text': 'Two'}]}
+            'audio': str(self.voice), 'audio_record': 'cached', 'cues': [{'start': .25, 'end': 2.11, 'text': 'One'}, {'start': 2.11, 'end': 4.25, 'text': 'Two'}]}
         calls = []
         def plate(ci, si, start, end):
             calls.append((ci, si, start, end))
@@ -103,7 +103,7 @@ class ShotcraftTests(unittest.TestCase):
         config['chapters'][0]['steps'][1]['transition'] = 'iris'
         config['chapters'][0]['steps'][2]['transition'] = 'depth-slide'
         chapter = config['chapters'][0] | {'start': 0, 'end': 4.5, 'lead': .25, 'audio_duration': 4,
-            'audio': str(self.voice), 'audio_sha256': 'cached', 'cues': []}
+            'audio': str(self.voice), 'audio_record': 'cached', 'cues': []}
         project = timeline(config, [chapter], self.root/'public', lambda *a: self.image)
         shots = next(t for t in project['tracks'] if t['id'] == 'shots')['clips']
         self.assertNotIn('transition', shots[0])
@@ -117,7 +117,7 @@ class ShotcraftTests(unittest.TestCase):
         self.raw['audio'] = {'sfx': [{'source': str(self.voice), 'start': 1, 'duration': .5, 'volume': .2}]}
         config = self.config()
         chapter = config['chapters'][0] | {'start': 0, 'end': 4.5, 'lead': .25, 'audio_duration': 4,
-            'audio': str(self.voice), 'audio_sha256': 'cached', 'cues': []}
+            'audio': str(self.voice), 'audio_record': 'cached', 'cues': []}
         project = timeline(config, [chapter], self.root/'public', lambda *a: self.image)
         sound = next(t for t in project['tracks'] if t['id'] == 'sfx')['clips'][0]
         self.assertEqual((sound['start'], sound['duration'], sound['props']['volume']), (30, 15, .2))
@@ -134,7 +134,7 @@ class ShotcraftTests(unittest.TestCase):
         self.raw['chapters'][0]['steps'] = self.raw['chapters'][0]['steps'][:1]
         config = self.config()
         chapter = config['chapters'][0] | {'start': 0, 'end': 4.5, 'lead': .25, 'audio_duration': 4,
-            'audio': str(self.voice), 'audio_sha256': 'cached', 'cues': []}
+            'audio': str(self.voice), 'audio_record': 'cached', 'cues': []}
         project = timeline(config, [chapter], self.root/'public', lambda *a: self.image)
         shot = next(t for t in project['tracks'] if t['id'] == 'shots')['clips'][0]
         self.assertEqual(shot['speed'], 0)

@@ -100,9 +100,10 @@ class SilentProjectTests(unittest.TestCase):
 class PortabilityTests(unittest.TestCase):
     def test_default_mode_does_not_invalidate_old_tts_cache(self):
         chapter = {'narration': '已确认文稿'}
-        root = Path('output')
-        self.assertEqual(cache_location(root, chapter, DEFAULT_VOICE),
-                         cache_location(root, chapter, DEFAULT_VOICE | {'mode': 'tts'}))
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            self.assertEqual(cache_location(root, chapter, DEFAULT_VOICE),
+                             cache_location(root, chapter, DEFAULT_VOICE | {'mode': 'tts'}))
 
     def test_utf8_atomic_output_and_cross_process_lock(self):
         with tempfile.TemporaryDirectory(prefix='锁 空格-') as temp:

@@ -1,13 +1,14 @@
 import asyncio
 import json
 import logging
+from pathlib import Path
 import time
 import uuid
 
 from websockets.asyncio.client import connect
 from websockets.exceptions import ConnectionClosed, InvalidHandshake, InvalidStatus
 
-from .common import VideoError, atomic_write, audio_duration, digest, file_hash, run, write_json
+from .common import VideoError, atomic_write, audio_duration, cache_directory, file_record, run, write_json
 from .credentials import load_key
 from .protocol import decode, encode
 from .voices import context_supported, resolve, transport
@@ -129,8 +130,7 @@ async def synthesize(text, voice, key, timeout=240):
 
 def cache_location(output, chapter, voice):
     effective = dict(voice)
-    # 'mode' is an orchestration choice, not a TTS request parameter. Preserve
-    # existing voice cache signatures when loading older projects.
+    # 'mode' is an orchestration choice, not a TTS request parameter.
     effective.pop('mode', None)
     if "transport" in effective:
         try:
@@ -138,8 +138,8 @@ def cache_location(output, chapter, voice):
                 effective.pop("transport")
         except VideoError:
             pass
-    signature = digest({"protocol": 1, "text": chapter["narration"], "voice": effective})
-    return output / "audio" / signature
+    return cache_directory(Path(output) / 'audio',
+        {"protocol": 1, "text": chapter["narration"], "voice": effective})
 
 
 def cached_audio(folder):
@@ -148,7 +148,7 @@ def cached_audio(folder):
         return None
     try:
         value = json.loads(meta.read_text(encoding="utf-8"))
-        if value["sha256"] == file_hash(audio) and value["duration"] > 0:
+        if value.get('file') == file_record(audio) and value["duration"] > 0:
             return value
     except (OSError, ValueError, KeyError, TypeError):
         pass
@@ -171,7 +171,7 @@ def generate(chapter, voice, output, timeout=240):
         duration = audio_duration(partial)
         run(["ffmpeg", "-v", "error", "-xerror", "-i", partial, "-f", "null", "-"], timeout=120)
         partial.replace(folder / "voice.mp3")
-        meta = {"duration": duration, "sha256": file_hash(folder / "voice.mp3"),
+        meta = {"duration": duration, "file": file_record(folder / "voice.mp3"),
                 "speaker": voice["speaker"], "events": events, "event_counts": counts,
                 "elapsed_seconds": round(time.monotonic() - begin, 2), "source": "volcengine-api"}
         write_json(folder / "metadata.json", meta)

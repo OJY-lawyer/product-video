@@ -5,7 +5,7 @@ from pathlib import Path
 import wave
 
 from . import __version__
-from .common import VideoError, atomic_write, digest, file_hash, probe, run, write_json
+from .common import VideoError, atomic_write, cache_directory, file_record, probe, run, write_json
 from .render import Renderer, encode_video
 from .subtitles import from_events, from_text, srt
 from .tts import cache_location, cached_audio, generate
@@ -35,7 +35,7 @@ def prepare(config, allow_api):
                 alignment = 'text display timing; not speech alignment'
             cues = [{**cue, 'start': cue['start'] + cursor, 'end': cue['end'] + cursor} for cue in cues]
             chapters.append({**chapter, 'start': cursor, 'end': cursor + length, 'lead': 0,
-                'audio_duration': length, 'audio': None, 'audio_sha256': None,
+                'audio_duration': length, 'audio': None, 'audio_record': None,
                 'timing_mode': 'explicit-duration', 'caption_alignment': alignment, 'cues': cues})
             cursor += length
             continue
@@ -59,8 +59,13 @@ def prepare(config, allow_api):
         cues = [{**cue, "start": cue["start"] + cursor + lead, "end": cue["end"] + cursor + lead} for cue in cues]
         chapters.append({**chapter, "start": cursor, "end": cursor + length, "lead": lead,
                          "audio_duration": duration, "audio": str(folder / "voice.mp3"),
-                         "audio_sha256": metadata["sha256"], "cues": cues})
+                         "audio_record": file_record(folder / 'voice.mp3'), "cues": cues})
         cursor += length
+    from .highlights import validate_step_duration
+    for chapter in chapters:
+        for index, step in enumerate(chapter['steps']):
+            finish = chapter['steps'][index+1]['at'] if index+1 < len(chapter['steps']) else 1
+            validate_step_duration(step, (finish-step['at'])*chapter['audio_duration'], v['fps'])
     return chapters
 
 
@@ -121,15 +126,15 @@ def build(config, allow_api=True, preview=False):
         if config["product"].get("logo"):
             assets.add(config["product"]["logo"])
         assets.add(config["video"]["font"])
-        hashes = {p: file_hash(p) for p in sorted(assets)}
+        assets = {str(p): file_record(p) for p in sorted(assets)}
         source_root = Path(__file__).parent
-        source_hash = digest({str(p.relative_to(source_root)): file_hash(p) for p in source_root.rglob("*")
-                              if p.is_file() and p.suffix in (".py", ".js", ".html")})
-        signature = digest({"version": __version__, "source": source_hash, "config": config, "assets": hashes,
-                            "audio": [c["audio_sha256"] for c in chapters]})[:16]
-        folder = output / "renders" / signature
-        folder.mkdir(parents=True, exist_ok=True)
+        sources = {str(p.relative_to(source_root)): file_record(p) for p in source_root.rglob("*")
+                   if p.is_file() and p.suffix in (".py", ".js", ".html")}
+        folder = cache_directory(output / 'renders', {"version": __version__, "source": sources,
+            "config": config, "assets": assets, "audio": [c.get('audio_record') for c in chapters]})
         renderer = resources.enter_context(Renderer(config, chapters))
+        from .pacing import write_review
+        write_review(config, chapters, folder)
         write_json(folder / "timeline.json", {"chapters": chapters, "duration": renderer.total})
         atomic_write(folder / "subtitles.srt", srt([cue for c in chapters for cue in c["cues"]]).encode())
         atomic_write(folder / "narration.txt", "\n\n".join(c["narration"] for c in chapters).encode())
@@ -150,7 +155,8 @@ def build(config, allow_api=True, preview=False):
         movie, report_path = folder / "product-introduction.mp4", folder / "verification.json"
         if movie.exists() and report_path.exists():
             report = json.loads(report_path.read_text(encoding="utf-8"))
-            if report["sha256"] == file_hash(movie):
+            if report.get('file') == file_record(movie):
+                verify(movie, config, renderer.total)
                 write_json(output / "latest.json", {"movie": str(movie), "report": str(report_path)})
                 print(f"复用已验证成片：{movie}")
                 return folder
@@ -163,9 +169,9 @@ def build(config, allow_api=True, preview=False):
             partial.replace(movie)
         finally:
             partial.unlink(missing_ok=True)
-        report.update(sha256=file_hash(movie), bytes=movie.stat().st_size, frames=frames,
+        report.update(file=file_record(movie), bytes=movie.stat().st_size, frames=frames,
                       chapters=len(chapters), subtitle_cues=sum(len(c["cues"]) for c in chapters),
-                      assets=hashes, voice=None if config['voice'].get('mode') == 'none' else config["voice"]["speaker"],
+                      assets=assets, voice=None if config['voice'].get('mode') == 'none' else config["voice"]["speaker"],
                       api=None if config['voice'].get('mode') == 'none' else 'Volcengine TTS v3',
                       caption_alignment='explicit chapter captions or text display timing; not speech alignment' if config['voice'].get('mode') == 'none' else 'API word timestamps or explicit chapter captions; see project.resolved.json',
                       visual_review="unverified", listening_review="unverified",

@@ -10,7 +10,7 @@ import time
 import wave
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from product_video.common import file_hash, write_json
+from product_video.common import file_record, write_json
 from product_video.config import load
 from product_video.pipeline import verify
 from product_video.recording import record_web
@@ -30,7 +30,7 @@ def recorded_fixture(folder):
             dest = folder / f'{name}.mp4'
             if dest.exists():
                 report = json.loads(dest.with_suffix('.recording.json').read_text(encoding="utf-8"))
-                if file_hash(dest) != report['sha256']:
+                if file_record(dest) != report['file']:
                     raise ValueError('Existing fixture recording changed; use a new output directory.')
                 continue
             field = {'role': 'textbox', 'name': '搜索记录'}
@@ -121,7 +121,7 @@ def main():
         finally:
             pending.unlink(missing_ok=True)
         movie = folder / 'studio-demo.mp4'
-        report.update(frames=frames, sha256=file_hash(movie), renderer_3d=renderer.studio.info,
+        report.update(frames=frames, file=file_record(movie), renderer_3d=renderer.studio.info,
                       elapsed_seconds=round(time.monotonic() - started, 2),
                       narration='none', screen_media='recorded interactive fixture, not a customer product',
                       visual_review='unverified')

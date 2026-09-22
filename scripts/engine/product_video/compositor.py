@@ -298,6 +298,10 @@ class Renderer:
             if self.classic:
                 before = self.chrome(before, ci, si - 1)
             image = self.blend(before, image, since / duration, kind)
+        if shown == si and views and step.get('highlights'):
+            from .highlights import paint_highlights
+            paint_highlights(image, step['highlights'], elapsed, views[0], self.layout(ci, shown)[0],
+                self.v, self.font(25), reveal=reveal)
         if track:
             self.pointer(image, track, elapsed, views[0], self.layout(ci, shown)[0])
         return image if self.classic else self.chrome(image, ci, shown)
@@ -356,8 +360,12 @@ class Renderer:
         if (ci, si) in self.content:
             samples['text-reveal'] = min(.85, duration * .35) * .5
         if track:
-            samples.update(move=track['move'] * .5, press=track['press'],
+            samples.update(before=0, move=track['move'] * .5, press=track['press'],
                            result=track['reveal'] + self.transitions[ci, si][1] + .08)
+        for hi, mark in enumerate(chapter['steps'][si].get('highlights', [])):
+            begin = max(mark['start'], track['reveal'] if track else 0)
+            if begin < mark['end']:
+                samples[f'highlight-{hi}'] = (begin+mark['end'])/2
         if si and self.transitions[ci, si][1]:
             samples['transition'] = (track['reveal'] if track else 0) + self.transitions[ci, si][1] / 2
         times = {label: start + min(max(0, t), max(0, duration - 1 / self.v['fps'])) for label, t in samples.items()}

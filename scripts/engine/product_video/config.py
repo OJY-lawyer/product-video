@@ -240,16 +240,23 @@ def load(path, *, check_image_geometry=True):
         previous = -1
         for step_index, step in enumerate(steps):
             known(step, ("at", "images", "labels", "cursor", "click", "interaction", "camera",
-                         "transition", "transition_duration", "content", "scene3d", "shotcraft", "editorial"), "画面")
+                         "transition", "transition_duration", "content", "scene3d", "shotcraft", "editorial", "recording", "highlights"), "画面")
             transition_fields(step)
             number(step.get("at"), 0, 0.99, "画面 at")
             if step["at"] <= previous or (previous == -1 and step["at"] != 0):
                 raise VideoError("首个画面的 at 必须为 0，后续按升序且不重复。")
             previous = step["at"]
-            if any(k in step for k in ('content', 'scene3d', 'shotcraft', 'editorial')):
+            if any(k in step for k in ('content', 'scene3d', 'shotcraft', 'editorial', 'recording')):
                 step.setdefault('images', [])
             if not isinstance(step.get("images"), list) or not 0 <= len(step["images"]) <= 2:
                 raise VideoError("images 必须是最多两张图片的数组。")
+            if 'recording' in step:
+                if video['renderer'] != 'remotion':
+                    raise VideoError('二维 recording 镜头需要 Remotion。')
+                if step['images'] or step.get('labels') or any(k in step for k in ('content', 'scene3d', 'shotcraft', 'editorial', 'cursor', 'click', 'interaction', 'camera')):
+                    raise VideoError('recording 独占主画面；标注请使用 highlights，字幕另用 captions。')
+                from .recording import validate_recording
+                validate_recording(step['recording'], base)
             if 'editorial' in step:
                 if video['renderer'] != 'remotion':
                     raise VideoError('editorial 内容镜头需要 Remotion。')
@@ -273,7 +280,7 @@ def load(path, *, check_image_geometry=True):
                     raise VideoError('三维画面的文案使用 content.layout: split，纯文字镜头单独编排。')
             if 'content' in step:
                 validate_content(step['content'], ['3d-screen'] if 'scene3d' in step else step['images'], video)
-            elif not step['images'] and 'scene3d' not in step and 'shotcraft' not in step and 'editorial' not in step:
+            elif not step['images'] and not any(k in step for k in ('scene3d', 'shotcraft', 'editorial', 'recording')):
                 raise VideoError("每个画面需要 1–2 张图片，或用 content 编排纯文案画面。")
             step["images"] = [asset(x) for x in step["images"]]
             labels = step.setdefault("labels", [""] * len(step["images"]))
@@ -324,6 +331,17 @@ def load(path, *, check_image_geometry=True):
                 known(camera, ('zoom', 'center'), 'camera')
                 number(camera.get('zoom', 1), 1, 2.5, 'camera.zoom')
                 point(camera.get('center', [.5, .5]), 'camera.center')
+            if 'highlights' in step:
+                if len(step['images']) != 1 and 'recording' not in step:
+                    raise VideoError('highlights 只用于单张截图或二维 recording 镜头。')
+                from .highlights import validate_highlights
+                validate_highlights(step['highlights'])
+        if voice['mode'] == 'none':
+            from .highlights import validate_step_duration
+            length = math.ceil(chapter['duration'] * video['fps'] - 1e-8) / video['fps']
+            for index, step in enumerate(steps):
+                finish = steps[index+1]['at'] if index+1 < len(steps) else 1
+                validate_step_duration(step, (round(finish*length*video['fps'])-round(step['at']*length*video['fps']))/video['fps'], video['fps'])
     text(config.get("output", "output"), "输出路径", 4096)
     output = (base / Path(config.get("output", "output")).expanduser()).resolve()
     config.update(voice=voice, video=video, output=str(output))

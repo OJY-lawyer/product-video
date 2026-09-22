@@ -1,26 +1,41 @@
-import hashlib
 import json
 import os
 from pathlib import Path
 import subprocess
 import tempfile
 import shutil
+import uuid
 
 
 class VideoError(Exception):
     """An actionable error safe for the command-line boundary."""
 
 
-def digest(value):
-    return hashlib.sha256(json.dumps(value, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
+def file_record(path):
+    """Ordinary file metadata for cache freshness, never content verification."""
+    state = Path(path).stat()
+    return {'bytes': state.st_size, 'modified_ns': state.st_mtime_ns}
 
 
-def file_hash(path):
-    h = hashlib.sha256()
-    with Path(path).open("rb") as f:
-        for block in iter(lambda: f.read(1024 * 1024), b""):
-            h.update(block)
-    return h.hexdigest()
+def cache_directory(parent, inputs):
+    """Reuse an explicit matching input manifest; opaque names are random IDs."""
+    parent = Path(parent)
+    parent.mkdir(parents=True, exist_ok=True)
+    # JSON round-trip normalizes tuples and non-string dictionary keys.
+    inputs = json.loads(json.dumps(inputs, ensure_ascii=False))
+    for candidate in sorted(parent.iterdir()):
+        manifest = candidate / 'inputs.json'
+        if not candidate.is_dir() or not manifest.is_file():
+            continue
+        try:
+            if json.loads(manifest.read_text(encoding='utf-8')) == inputs:
+                return candidate
+        except (OSError, ValueError):
+            continue
+    folder = parent / str(uuid.uuid4())
+    folder.mkdir()
+    write_json(folder / 'inputs.json', inputs)
+    return folder
 
 
 def atomic_write(path, data, mode=0o644):

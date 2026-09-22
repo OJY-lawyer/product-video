@@ -8,7 +8,7 @@ import wave
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from product_video.common import file_hash, write_json
+from product_video.common import file_record, write_json
 from product_video.config import load
 from product_video.demo import create
 from product_video.motion import PRESETS, STYLE_LABELS, TRANSITIONS
@@ -90,7 +90,7 @@ def export_silent(config, chapters, folder, filename, **details):
         partial.replace(movie)
     finally:
         partial.unlink(missing_ok=True)
-    report.update(frames=frames, sha256=file_hash(movie), fixture=True, narration='silent; no API called',
+    report.update(frames=frames, file=file_record(movie), fixture=True, narration='silent; no API called',
                   visual_review='unverified', **details)
     write_json(folder / 'verification.json', report)
     print(f'无配音动效样片已验证：{movie}', flush=True)

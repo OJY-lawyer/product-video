@@ -17,7 +17,7 @@ from PIL import Image
 
 from product_video import credentials
 from product_video.capture import capture_project, capture_web, read_plan, web_error, web_session
-from product_video.common import VideoError, file_hash, write_json
+from product_video.common import VideoError, file_record, write_json
 from product_video.onboarding import SetupServer, setup
 
 
@@ -305,7 +305,7 @@ class CaptureTests(unittest.TestCase):
                         capture_web(page, target, shot, destination)
                         self.assertAlmostEqual(page.get_by_role('heading', name=name).bounding_box()['y'], 0, delta=1)
                         files.append(destination)
-                    self.assertNotEqual(file_hash(files[0]), file_hash(files[1]))
+                    self.assertNotEqual(files[0].read_bytes(), files[1].read_bytes())
 
     def project(self, folder, url):
         plan={'schema_version':1,'target':{'provider':'web','url':url,'viewport':{'width':960,'height':600}},'shots':[
@@ -326,12 +326,12 @@ class CaptureTests(unittest.TestCase):
             data=json.loads(compiled.read_text(encoding="utf-8"));self.assertNotIn('capture',data)
             self.assertEqual(data['output'],str((folder/'output').resolve()))
             files=[Path(s['images'][0]) for s in data['chapters'][0]['steps']]
-            self.assertNotEqual(file_hash(files[0]),file_hash(files[1]))
+            self.assertNotEqual(files[0].read_bytes(),files[1].read_bytes())
             with Image.open(files[0]) as im:
                 self.assertEqual(im.size,(1920,1200));self.assertEqual(im.convert('RGB').getpixel((250,450)),(255,0,255))
             with Image.open(files[1]) as im: self.assertEqual(im.convert('RGB').getpixel((1800,1100)),(23,44,67))
             report=json.loads((compiled.parent/'manifest.json').read_text(encoding="utf-8"));self.assertEqual(len(report['shots']),2)
-            self.assertEqual(report['shots'][0]['sha256'],file_hash(files[0]))
+            self.assertEqual(report['shots'][0]['file_state'],file_record(files[0]))
             self.assertIn('capture:', (folder/'project.json').read_text(encoding="utf-8"))
 
     def test_preflight_rejects_unknown_refs_without_browser(self):
@@ -398,7 +398,7 @@ class CaptureTests(unittest.TestCase):
 
     def test_native_background_launch_and_permission_stop(self):
         from product_video.native_capture import NativeCapture
-        with tempfile.TemporaryDirectory() as d, patch('product_video.native_capture.platform.system',return_value='Darwin'), patch('product_video.native_capture.shutil.which',return_value='/usr/bin/swiftc'), patch('product_video.native_capture.file_hash',return_value='fixture'), patch('product_video.native_capture.native_run') as run:
+        with tempfile.TemporaryDirectory() as d, patch('product_video.native_capture.platform.system',return_value='Darwin'), patch('product_video.native_capture.shutil.which',return_value='/usr/bin/swiftc'), patch('product_video.native_capture.cache_directory', return_value=Path(d)/'helpers/fixture'), patch('product_video.native_capture.native_run') as run:
             helper=Path(d)/'helpers/fixture/capture-macos';helper.parent.mkdir(parents=True);helper.touch()
             run.side_effect=[b'{"accessibility":true,"screen_recording":true}',b'',b'{"ready":true}']
             NativeCapture({'bundle_id':'com.example.Fixture'},Path(d))

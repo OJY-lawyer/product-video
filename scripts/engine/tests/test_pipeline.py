@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from PIL import Image
 
-from product_video.common import VideoError, audio_duration, file_hash, run, write_json
+from product_video.common import VideoError, audio_duration, file_record, run, write_json
 from product_video.config import load
 from product_video.pipeline import build
 from product_video.tts import cache_location
@@ -28,14 +28,14 @@ class PipelineTests(unittest.TestCase):
         write_json(self.root / 'project.json', project)
         self.config = load(self.root / 'project.json')
         folder = cache_location(self.root / 'output', self.config['chapters'][0], self.config['voice'])
-        folder.mkdir(parents=True)
+        folder.mkdir(parents=True, exist_ok=True)
         self.audio = folder / 'voice.mp3'
         self.audio.write_bytes(run(['ffmpeg', '-v', 'error', '-f', 'lavfi', '-i',
                                     'sine=frequency=440:duration=0.6', '-ar', '24000',
                                     '-c:a', 'libmp3lame', '-f', 'mp3', 'pipe:1']))
         self.metadata = folder / 'metadata.json'
         write_json(self.metadata, {
-            'duration': audio_duration(self.audio), 'sha256': file_hash(self.audio),
+            'duration': audio_duration(self.audio), 'file': file_record(self.audio),
             'events': [{'event': 364, 'data': {'words': [
                 {'word': '测试。', 'startTime': .05, 'endTime': .45},
             ]}}],
@@ -52,16 +52,16 @@ class PipelineTests(unittest.TestCase):
             second = build(changed, allow_api=False)
             self.assertNotEqual(first, second)
             self.assertEqual(self.latest()['movie'], str(second / 'product-introduction.mp4'))
-            original_hash = file_hash(first / 'product-introduction.mp4')
-            audio_state = (file_hash(self.audio), self.audio.stat().st_mtime_ns)
+            original_media = file_record(first / 'product-introduction.mp4')
+            audio_state = (file_record(self.audio), self.audio.stat().st_mtime_ns)
             with patch('product_video.pipeline.encode_video', side_effect=AssertionError('Must reuse cached video')):
                 self.assertEqual(build(self.config, allow_api=False), first)
                 self.assertEqual(self.latest(), {'movie': str(first / 'product-introduction.mp4'),
                                                 'report': str(first / 'verification.json')})
                 build(changed, allow_api=False, preview=True)
                 self.assertEqual(self.latest()['movie'], str(first / 'product-introduction.mp4'))
-            self.assertEqual(file_hash(first / 'product-introduction.mp4'), original_hash)
-            self.assertEqual((file_hash(self.audio), self.audio.stat().st_mtime_ns), audio_state)
+            self.assertEqual(file_record(first / 'product-introduction.mp4'), original_media)
+            self.assertEqual((file_record(self.audio), self.audio.stat().st_mtime_ns), audio_state)
 
             (second / 'product-introduction.mp4').write_bytes(b'corrupt cached fixture')
             with self.assertRaisesRegex(VideoError, '校验失败'):
@@ -87,7 +87,7 @@ class PipelineTests(unittest.TestCase):
             'layout': 'title', 'headline': '完整文案画面', 'body': '正文与旁白独立编排。'}}]
         write_json(self.root / 'copy.json', raw)
         config = load(self.root / 'copy.json')
-        audio_state = (file_hash(self.audio), self.audio.stat().st_mtime_ns)
+        audio_state = (file_record(self.audio), self.audio.stat().st_mtime_ns)
         with patch('product_video.pipeline.generate', side_effect=AssertionError('Reuse narration')):
             first = build(config, allow_api=False)
             raw['chapters'][0]['steps'][0]['content']['body'] = '更新正文，沿用同一段旁白。'
@@ -103,4 +103,4 @@ class PipelineTests(unittest.TestCase):
             self.assertEqual((folder / 'narration.txt').read_text(encoding="utf-8"), '测试。')
         first_report = json.loads((first / 'verification.json').read_text(encoding="utf-8"))
         self.assertNotIn(str(self.root / 'image.png'), first_report['assets'])
-        self.assertEqual((file_hash(self.audio), self.audio.stat().st_mtime_ns), audio_state)
+        self.assertEqual((file_record(self.audio), self.audio.stat().st_mtime_ns), audio_state)

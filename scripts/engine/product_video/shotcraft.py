@@ -8,7 +8,7 @@ import subprocess
 
 from PIL import Image, ImageOps
 
-from .common import VideoError, atomic_write, digest, file_hash, probe, run, write_json, executable, process_options
+from .common import VideoError, atomic_write, cache_directory, file_record, probe, run, write_json, executable, process_options
 
 
 def runtime_root():
@@ -130,17 +130,21 @@ def timeline(config, chapters, public, render_plate):
     total = math.ceil(chapters[-1]['end'] * fps - 1e-8)
     tracks = {kind: [] for kind in ('captions', 'narration', 'sfx', 'bgm', 'shots')}
     public.mkdir(parents=True, exist_ok=True)
+    copied = {}
 
     def asset(source):
         source = Path(source)
-        name = file_hash(source)[:20] + source.suffix.lower()
+        key = str(source.resolve())
+        if key in copied:
+            return copied[key]
+        name = f'asset-{len(copied) + 1:04d}' + source.suffix.lower()
         destination = public / 'media' / name
         destination.parent.mkdir(exist_ok=True)
-        if not destination.exists():
-            pending = destination.with_suffix(destination.suffix + '.pending')
-            shutil.copyfile(source, pending)
-            pending.replace(destination)
-        return 'media/' + name
+        pending = destination.with_suffix(destination.suffix + '.pending')
+        shutil.copyfile(source, pending)
+        pending.replace(destination)
+        copied[key] = 'media/' + name
+        return copied[key]
 
     font_file = asset(v['font'])
     for ci, chapter in enumerate(chapters):
@@ -161,7 +165,20 @@ def timeline(config, chapters, public, render_plate):
             end = round((chapter['start'] + chapter['lead'] + next_step['at'] * chapter['audio_duration'] if next_step else chapter['end']) * fps)
             if end <= start:
                 raise VideoError('镜头不足一帧，请合并镜头或延长旁白。')
-            if 'editorial' in step:
+            if 'recording' in step:
+                from .recording import recording_info
+                spec = step['recording']
+                info = recording_info(spec, (end-start)/fps, fps)
+                motion = clip(f'shot-{ci}-{si}', 'video-clip', start, end-start,
+                    props={'file': asset(spec['source']), 'muted': True, 'fit': 'contain',
+                           'sourceWidth': info['width'], 'sourceHeight': info['height'],
+                           'highlights': step.get('highlights', []), 'accent': v['accent'],
+                           'foreground': v['foreground'], 'surface': v['surface'],
+                           'reducedMotion': v['reduced_motion']},
+                    speed=spec.get('speed', 1), label=chapter['title'])
+                motion['inOffset'] = round(spec.get('trim_start', 0) * fps)
+                tracks['shots'].append(motion)
+            elif 'editorial' in step:
                 spec = step['editorial']
                 items = []
                 for item in spec['items']:
@@ -201,7 +218,7 @@ def timeline(config, chapters, public, render_plate):
     for ci, chapter in enumerate(chapters):
         for si, step in enumerate(chapter['steps']):
             shot = next(x for x in shots if x['id'] == f'shot-{ci}-{si}')
-            external = si == 0 or any(k in item for item in (step, chapter['steps'][si-1]) for k in ('shotcraft', 'editorial'))
+            external = si == 0 or any(k in item for item in (step, chapter['steps'][si-1]) for k in ('shotcraft', 'editorial', 'recording'))
             if not external or shot['start'] == 0 or v['reduced_motion']:
                 continue
             if si == 0:
@@ -224,7 +241,7 @@ def timeline(config, chapters, public, render_plate):
     names = {'shots': '画面', 'captions': '字幕', 'narration': '语音旁白', 'sfx': '音效', 'bgm': '背景音乐'}
     return {'name': config['product']['name'], 'fps': fps, 'width': v['width'], 'height': v['height'],
             'background': v['background'], 'fontFile': font_file,
-            'source': digest({'config': config, 'audio': [c['audio_sha256'] for c in chapters]}),
+            'source': 'Product Video project',
             'tracks': [{'id': key, 'name': names[key], 'clips': clips} for key, clips in tracks.items()]}
 
 
@@ -238,18 +255,19 @@ def build(config, allow_api=False, preview=False, project_only=False):
         assets = {p for c in chapters for s in c['steps'] for p in s['images']}
         assets.update(p for c in chapters for s in c['steps'] for p in s.get('shotcraft', {}).get('media', {}).values())
         assets.update(i['source'] for c in chapters for s in c['steps'] for i in s.get('editorial', {}).get('items', []))
+        assets.update(s['recording']['source'] for c in chapters for s in c['steps'] if 'recording' in s)
         assets.update(d['source'] for c in chapters for s in c['steps'] for d in s.get('scene3d', {}).get('devices', []))
         assets.update(x['source'] for clips in config.get('audio', {}).values() for x in clips)
         assets.add(config['video']['font'])
         if config['product'].get('logo'):
             assets.add(config['product']['logo'])
-        hashes = {str(p): file_hash(p) for p in assets}
-        sources = {str(p.relative_to(runtime_root())) if p.is_relative_to(runtime_root()) else 'native/' + p.name: file_hash(p) for p in runtime_sources()}
-        sources.update({p.name: file_hash(p) for p in Path(__file__).parent.glob('*.py')})
-        source_hash = digest(sources)
-        signature = digest({'config': config, 'audio': [c['audio_sha256'] for c in chapters], 'assets': hashes, 'motion': source_hash})[:16]
-        folder = output / 'renders' / signature
-        folder.mkdir(parents=True, exist_ok=True)
+        assets = {str(p): file_record(p) for p in assets}
+        sources = {str(p.relative_to(runtime_root())) if p.is_relative_to(runtime_root()) else 'native/' + p.name: file_record(p) for p in runtime_sources()}
+        sources.update({p.name: file_record(p) for p in Path(__file__).parent.glob('*.py')})
+        folder = cache_directory(output / 'renders', {'config': config,
+            'audio': [c.get('audio_record') for c in chapters], 'assets': assets, 'motion': sources})
+        from .pacing import write_review
+        write_review(config, chapters, folder)
         public = folder / 'studio' / 'public'
         public.mkdir(parents=True, exist_ok=True)
         plates = folder / 'plates'
@@ -257,25 +275,24 @@ def build(config, allow_api=False, preview=False, project_only=False):
         legacy = copy.deepcopy(chapters)
         for ci, chapter in enumerate(legacy):
             for i, step in enumerate(chapter['steps']):
-                if any(k in step for k in ('shotcraft', 'editorial')):
+                if any(k in step for k in ('shotcraft', 'editorial', 'recording')):
                     step.clear()
                     step.update(at=chapters[ci]['steps'][i]['at'], images=[], labels=[])
-                if i and any(k in chapters[ci]['steps'][i-1] for k in ('shotcraft', 'editorial')):
+                if i and any(k in chapters[ci]['steps'][i-1] for k in ('shotcraft', 'editorial', 'recording')):
                     step.update(transition='cut')
         with Renderer(config, legacy) as renderer:
             def render_plate(ci, si, start, end):
-                plate_key = digest({'chapter': legacy[ci], 'step': si, 'range': [start, end],
-                    'video': config['video'], 'product': config['product'], 'assets': hashes,
-                    'renderer': {name: value for name, value in sources.items() if name.startswith('native/') or name in ('compositor.py', 'presentation.py', 'motion.py', 'premium_transitions.py', 'text_scenes.py', 'studio3d.py', 'scene3d.py')}})[:20]
-                plate_cache = output / 'plates'
-                plate_cache.mkdir(exist_ok=True)
-                destination = plate_cache / f'{plate_key}.mp4'
+                plate_cache = cache_directory(output / 'plates', {'chapter': legacy[ci], 'step': si, 'range': [start, end],
+                    'video': config['video'], 'product': config['product'], 'assets': assets,
+                    'renderer': {name: value for name, value in sources.items() if name.startswith('native/') or name in ('compositor.py', 'presentation.py', 'motion.py', 'premium_transitions.py', 'text_scenes.py', 'studio3d.py', 'scene3d.py', 'highlights.py')}})
+                destination = plate_cache / 'clip.mp4'
                 if destination.exists():
                     try:
                         verify(destination, config, (end-start)/config['video']['fps'])
                         return destination
                     except VideoError:
-                        destination.unlink()
+                        # Keep the failed media available for inspection.
+                        destination.replace(plate_cache / 'clip.invalid.mp4')
                 silent = plates / f'{ci:02}-{si:02}.wav'
                 duration = (end-start) / config['video']['fps']
                 run(['ffmpeg', '-v', 'error', '-y', '-f', 'lavfi', '-i', 'anullsrc=r=48000:cl=stereo', '-t', str(duration), str(silent)])
@@ -294,6 +311,20 @@ def build(config, allow_api=False, preview=False, project_only=False):
                     pending.unlink(missing_ok=True)
                 return destination
             project = timeline(config, chapters, public, render_plate)
+            review_points = []
+            fps = config['video']['fps']
+            shot_bounds = {shot['id']: (shot['start'], shot['start']+shot['duration']-1)
+                           for track in project['tracks'] if track['id'] == 'shots' for shot in track['clips']}
+            for ci, chapter in enumerate(chapters):
+                for si, step in enumerate(chapter['steps']):
+                    if not any(k in step for k in ('shotcraft', 'editorial', 'recording')):
+                        for phase, seconds in renderer.review_times(ci, si).items():
+                            review_points.append({'frame': round(seconds * fps), 'phase': phase})
+                    start, last = shot_bounds[f'shot-{ci}-{si}']
+                    for hi, mark in enumerate(step.get('highlights', [])):
+                        for phase, seconds in (('enter', mark['start']), ('middle', (mark['start']+mark['end'])/2), ('exit', mark['end']-1/fps)):
+                            review_points.append({'frame': min(last, max(start, start + round(seconds*fps))), 'phase': f'highlight-{hi}-{phase}'})
+            write_json(folder / 'review-points.json', review_points)
         write_json(folder / 'studio/project.json', project)
         write_json(folder / 'timeline.json', {'chapters': chapters, 'duration': chapters[-1]['end']})
         write_json(folder / 'project.resolved.json', config)
@@ -316,6 +347,11 @@ def build(config, allow_api=False, preview=False, project_only=False):
                 for phase, offset in offsets:
                     frame = shot['start'] + offset
                     items.append({'frame': frame, 'output': str(previews / f'{shot["id"]}-{phase}.png')})
+            sampled = {item['frame'] for item in items}
+            for point in review_points:
+                if point['frame'] not in sampled:
+                    items.append({'frame': point['frame'], 'output': str(previews / f'frame-{point["frame"]:06d}.png')})
+                    sampled.add(point['frame'])
             invoke('still', {**request, 'frames': items}, folder)
             write_json(previews / 'index.json', items)
             return folder
@@ -327,12 +363,12 @@ def build(config, allow_api=False, preview=False, project_only=False):
             pending.replace(movie)
         finally:
             pending.unlink(missing_ok=True)
-        report.update(sha256=file_hash(movie), bytes=movie.stat().st_size, assets=hashes,
+        report.update(file=file_record(movie), bytes=movie.stat().st_size, assets=assets,
             frames=math.ceil(chapters[-1]['end'] * config['video']['fps'] - 1e-8), chapters=len(chapters),
             subtitle_cues=sum(len(c['cues']) for c in chapters), renderer='Remotion + video-shotcraft',
             voice_mode=config['voice'].get('mode', 'tts'),
             caption_alignment=[c.get('caption_alignment', 'API word timestamps or explicit chapter captions') for c in chapters],
-            upstream=catalogue()['upstream'], studio=str(folder / 'studio/project.json'),
+            studio=str(folder / 'studio/project.json'),
             visual_review='unverified', listening_review='unverified')
         write_json(folder / 'verification.json', report)
         write_json(output / 'latest.json', {'movie': str(movie), 'report': str(folder / 'verification.json'), 'studio': str(folder / 'studio/project.json')})

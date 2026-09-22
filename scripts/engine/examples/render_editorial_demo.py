@@ -5,7 +5,7 @@ from pathlib import Path
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from product_video.common import audio_duration, file_hash, run, write_json
+from product_video.common import audio_duration, file_record, run, write_json
 from product_video.config import load
 from product_video.demo import create
 from product_video.shotcraft import build
@@ -53,7 +53,7 @@ def main():
         folder.mkdir(parents=True,exist_ok=True)
         audio=folder/'voice.mp3'
         run(['ffmpeg','-v','error','-f','lavfi','-i','anullsrc=r=24000:cl=mono','-t',str(duration),'-c:a','libmp3lame',audio])
-        write_json(folder/'metadata.json', {'duration':audio_duration(audio),'sha256':file_hash(audio),
+        write_json(folder/'metadata.json', {'duration':audio_duration(audio),'file':file_record(audio),
             'source':'silent-layout-fixture','events':[], 'speaker':'none'})
     result=build(config,allow_api=False,preview=args.mode=='preview',project_only=args.mode=='prepare')
     print(f'Offline layout example: {result}. Audio is silent; no TTS request was made.')
